@@ -1,0 +1,1 @@
+I'll analyze Broadcom Inc. (AVGO) using the available fundamental data tools. Let me retrieve comprehensive data including fundamentals, balance sheet, cash flow, and income statement.

@@ -1,0 +1,1 @@
+I'll pull up the latest market data and technicals for Palo Alto Networks (PANW).

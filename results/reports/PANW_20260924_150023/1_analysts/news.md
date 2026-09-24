@@ -1,0 +1,1 @@
+I'll gather the data needed for the PANW analysis. Since these calls are independent, I'll batch them together:

@@ -1,0 +1,1 @@
+I'll proceed with the comprehensive fundamental analysis of TSM (Taiwan Semiconductor Manufacturing Company Limited) as of 2026-09-24. Let me gather the financial data.

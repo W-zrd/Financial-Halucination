@@ -1,0 +1,1 @@
+I'll proceed with the analysis workflow for TSM (Taiwan Semiconductor Manufacturing Company, NYQ). Let me gather the required data: company-specific news, global market news, key macro indicators, and prediction market signals. Since these are all independent calls, I'll make them together.
