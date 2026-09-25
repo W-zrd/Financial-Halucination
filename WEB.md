@@ -22,7 +22,7 @@ Local dependencies and credentials are already prepared on this machine. Start b
 ./scripts/dev.sh
 ```
 
-Open `http://127.0.0.1:5173`. Press `Ctrl+C` to stop both servers. The launcher loads `.env.web`, forces HTTP-safe local cookies, checks prerequisites, waits for the backend health endpoint, and then starts Vite.
+Open `http://127.0.0.1:5173`. Press `Ctrl+C` to stop both servers. The launcher loads `.env.web`, restores local report ownership after Docker use when necessary, forces HTTP-safe local cookies, checks prerequisites and ports, waits for the backend health endpoint, and then starts Vite.
 
 For a fresh checkout, perform the one-time setup first:
 

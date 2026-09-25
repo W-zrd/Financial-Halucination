@@ -4,7 +4,7 @@ set -Eeuo pipefail
 repo="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$repo"
 
-for command in uv npm curl; do
+for command in uv npm curl setsid; do
   command -v "$command" >/dev/null 2>&1 || {
     echo "Missing required command: $command" >&2
     exit 1
@@ -28,6 +28,15 @@ done
   exit 1
 }
 
+if [[ -d results && ! -w results ]]; then
+  command -v sudo >/dev/null 2>&1 || {
+    echo "The results directory is not writable and sudo is unavailable." >&2
+    exit 1
+  }
+  echo "Restoring local ownership of results after Docker use..."
+  sudo chown -R "$(id -u):$(id -g)" results
+fi
+
 set -a
 source .env.web
 set +a
@@ -46,22 +55,22 @@ backend_pid=""
 frontend_pid=""
 cleanup() {
   trap - EXIT INT TERM
-  [[ -z "$frontend_pid" ]] || kill "$frontend_pid" 2>/dev/null || true
-  [[ -z "$backend_pid" ]] || kill "$backend_pid" 2>/dev/null || true
+  [[ -z "$frontend_pid" ]] || kill -- "-$frontend_pid" 2>/dev/null || true
+  [[ -z "$backend_pid" ]] || kill -- "-$backend_pid" 2>/dev/null || true
   [[ -z "$frontend_pid" ]] || wait "$frontend_pid" 2>/dev/null || true
   [[ -z "$backend_pid" ]] || wait "$backend_pid" 2>/dev/null || true
 }
 trap cleanup EXIT INT TERM
 
-uv run tradingagents-web &
+setsid uv run tradingagents-web &
 backend_pid=$!
 
 for _ in {1..30}; do
-  if curl --fail --silent http://127.0.0.1:8082/api/health >/dev/null; then
-    break
-  fi
   if ! kill -0 "$backend_pid" 2>/dev/null; then
     wait "$backend_pid"
+  fi
+  if curl --fail --silent http://127.0.0.1:8082/api/health >/dev/null; then
+    break
   fi
   sleep 0.5
 done
@@ -71,7 +80,7 @@ curl --fail --silent http://127.0.0.1:8082/api/health >/dev/null || {
   exit 1
 }
 
-npm --prefix frontend run dev -- --host 127.0.0.1 &
+setsid npm --prefix frontend run dev -- --host 127.0.0.1 --strictPort &
 frontend_pid=$!
 
 echo
