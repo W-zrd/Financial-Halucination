@@ -1,36 +1,50 @@
 services:
-  tradingagents:
-    build: .
+  finance-web:
+    container_name: finance-web
+    image: ${TRADINGAGENTS_IMAGE:-tradingagents-web:local}
+    build:
+      context: .
+      target: runtime
     env_file:
-      - .env
-    volumes:
-      - tradingagents_data:/home/appuser/.tradingagents
-    tty: true
-    stdin_open: true
-
-  ollama:
-    image: ollama/ollama:latest
-    volumes:
-      - ollama_data:/root/.ollama
-    profiles:
-      - ollama
-
-  tradingagents-ollama:
-    build: .
-    env_file:
-      - .env
+      - path: .env
+        required: false
+      - path: .env.web
+        required: false
     environment:
-      - TRADINGAGENTS_LLM_PROVIDER=ollama
-      - OLLAMA_BASE_URL=http://ollama:11434/v1
+      WEB_ENV: production
+      WEB_COOKIE_SECURE: "true"
+      TRADINGAGENTS_RESULTS_DIR: /app/results
+      TRADINGAGENTS_CACHE_DIR: /home/app/.tradingagents/cache
+      TRADINGAGENTS_MEMORY_LOG_PATH: /home/app/.tradingagents/memory/trading_memory.md
+      TRADINGAGENTS_OUTPUT_LANGUAGE: English
+    ports:
+      - "127.0.0.1:8082:8082"
     volumes:
-      - tradingagents_data:/home/appuser/.tradingagents
-    depends_on:
-      - ollama
-    tty: true
-    stdin_open: true
-    profiles:
-      - ollama
+      - ./results:/app/results
+      - tradingagents_data:/home/app/.tradingagents
+    networks:
+      - wzrd_default
+    restart: unless-stopped
+    read_only: true
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,nodev,size=64m
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    pids_limit: 256
+    mem_limit: 2g
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8082/api/health', timeout=3)"]
+      interval: 30s
+      timeout: 5s
+      start_period: 20s
+      retries: 3
 
 volumes:
   tradingagents_data:
-  ollama_data:
+
+networks:
+  wzrd_default:
+    external: true
+    name: wzrd_default

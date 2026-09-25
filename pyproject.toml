@@ -25,6 +25,8 @@ dependencies = [
     "stockstats>=0.6.5",
     "typing-extensions>=4.14.0",
     "yfinance>=1.4.1",
+    "fastapi>=0.116.0",
+    "uvicorn[standard]>=0.35.0",
 ]
 
 [project.optional-dependencies]
@@ -41,6 +43,7 @@ bedrock = [
 
 [project.scripts]
 tradingagents = "cli.main:app"
+tradingagents-web = "tradingagents.web.app:main"
 
 [tool.setuptools.packages.find]
 include = ["tradingagents*", "cli*"]
@@ -75,6 +78,7 @@ ignore = ["E501"]
 
 [tool.ruff.lint.per-file-ignores]
 "**/__init__.py" = ["F401"]   # intentional re-exports
+"tradingagents/web/app.py" = ["B008"]  # FastAPI dependency injection uses Depends defaults
 
 [tool.ruff.lint.isort]
 # Keep multiple aliased names from one module in a single combined import block
