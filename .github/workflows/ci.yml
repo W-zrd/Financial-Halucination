@@ -96,7 +96,7 @@ jobs:
           scp -i ~/.ssh/id_ed25519 -o IdentitiesOnly=yes -o BatchMode=yes -o StrictHostKeyChecking=yes -P "$DEPLOY_PORT" tradingagents-scripts.tar.gz "$DEPLOY_USER@$DEPLOY_HOST:/tmp/"
       - name: Deploy with rollback
         run: |
-          ssh -i ~/.ssh/id_ed25519 -o IdentitiesOnly=yes -o BatchMode=yes -o StrictHostKeyChecking=yes -p "$DEPLOY_PORT" "$DEPLOY_USER@$DEPLOY_HOST" "set -eu; install -d /opt/tradingagents/scripts /opt/tradingagents/results; cp /tmp/docker-compose.yml /opt/tradingagents/docker-compose.yml; tar -xzf /tmp/tradingagents-scripts.tar.gz -C /opt/tradingagents; docker load < /tmp/tradingagents-web.tar.gz; cd /opt/tradingagents; chmod +x scripts/*.sh; ./scripts/deploy.sh 'tradingagents-web:${IMAGE_TAG}'; rm -f /tmp/tradingagents-web.tar.gz /tmp/tradingagents-scripts.tar.gz /tmp/docker-compose.yml"
+          ssh -i ~/.ssh/id_ed25519 -o IdentitiesOnly=yes -o BatchMode=yes -o StrictHostKeyChecking=yes -p "$DEPLOY_PORT" "$DEPLOY_USER@$DEPLOY_HOST" "set -eu; mkdir -p /opt/tradingagents/scripts /opt/tradingagents/results; cp /tmp/docker-compose.yml /opt/tradingagents/docker-compose.yml; tar -xzf /tmp/tradingagents-scripts.tar.gz -C /opt/tradingagents; docker load < /tmp/tradingagents-web.tar.gz; cd /opt/tradingagents; chmod +x scripts/*.sh; ./scripts/deploy.sh 'tradingagents-web:${IMAGE_TAG}'; rm -f /tmp/tradingagents-web.tar.gz /tmp/tradingagents-scripts.tar.gz /tmp/docker-compose.yml"
       - name: Public HTTPS smoke
         if: vars.PUBLIC_SMOKE_ENABLED == 'true'
         run: curl --fail --retry 6 --retry-delay 5 --silent --show-error https://finance.rfdhaikal-wizz.com/api/health
