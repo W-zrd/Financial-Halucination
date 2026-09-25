@@ -16,16 +16,25 @@ The Typer callback calls `cli.run.run_analysis`, which calls `get_user_selection
 
 ## Local development
 
+Local dependencies and credentials are already prepared on this machine. Start both FastAPI and Vite with one command:
+
+```bash
+./scripts/dev.sh
+```
+
+Open `http://127.0.0.1:5173`. Press `Ctrl+C` to stop both servers. The launcher loads `.env.web`, forces HTTP-safe local cookies, checks prerequisites, waits for the backend health endpoint, and then starts Vite.
+
+For a fresh checkout, perform the one-time setup first:
+
 ```bash
 cp .env.example .env
 cp .env.web.example .env.web
-# Replace WEB_PASSWORD and WEB_SESSION_SECRET; use WEB_COOKIE_SECURE=false for HTTP.
+# Add provider credentials to .env and login credentials to .env.web.
 uv sync --extra dev
-WEB_COOKIE_SECURE=false uv run tradingagents-web
-cd frontend && npm ci && npm run dev
+cd frontend && npm ci && cd ..
 ```
 
-Open `http://127.0.0.1:5173`. Vite proxies `/api` to FastAPI on port 8082. Run verification with:
+Run verification with:
 
 ```bash
 uv run pytest tests/test_web_api.py -q
