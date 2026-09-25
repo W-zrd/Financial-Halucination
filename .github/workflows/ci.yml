@@ -42,7 +42,7 @@ jobs:
       - run: docker build --tag "tradingagents-web:sha-${GITHUB_SHA}" .
 
   package:
-    if: github.event_name == 'push'
+    if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
     needs: test-build
     runs-on: ubuntu-latest
     timeout-minutes: 20
@@ -60,7 +60,7 @@ jobs:
           retention-days: 1
 
   deploy:
-    if: github.event_name == 'push'
+    if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
     needs: package
     runs-on: ubuntu-latest
     timeout-minutes: 15
