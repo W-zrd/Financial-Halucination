@@ -33,6 +33,12 @@ REPORT_FILES = {
 }
 DEPTHS = {1, 3, 5}
 STATUSES = {"queued", "running", "done", "failed", "cancelled"}
+FINAL_RATING = re.compile(
+    r"^\s*(?:#{1,6}\s*)?(?:\*\*)?(?P<final>final\s+)?(?:rating|decision|recommendation|verdict)"
+    r"(?:\*\*)?\s*[:\-–—]\s*(?:\*\*)?\s*(?P<rating>Buy|Overweight|Hold|Underweight|Sell)\b",
+    re.IGNORECASE | re.MULTILINE,
+)
+LEADING_VERDICT = re.compile(r"^\s*\*\*(Buy|Overweight|Hold|Underweight|Sell)\*\*\s*(?:\r?\n|$)", re.IGNORECASE)
 
 
 class AnalysisRequest(BaseModel):
@@ -72,11 +78,26 @@ def _now() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
-def _run_id(path: Path) -> str:
-    return hashlib.sha256(str(path.resolve()).encode()).hexdigest()[:20]
+def _run_id(path: Path, stat: os.stat_result | None = None) -> str:
+    stat = stat if stat is not None else path.stat()
+    identity = f"{path.absolute()}:{stat.st_dev}:{stat.st_ino}:{stat.st_ctime_ns}"
+    return "report-" + hashlib.sha256(identity.encode()).hexdigest()
+
+
+def _final_rating(decision: str) -> str | None:
+    labels = list(FINAL_RATING.finditer(decision))
+    explicit_final = next((match for match in reversed(labels) if match.group("final")), None)
+    leading = LEADING_VERDICT.match(decision)
+    if explicit_final:
+        return explicit_final.group("rating").capitalize()
+    if leading:
+        return leading.group(1).capitalize()
+    return labels[0].group("rating").capitalize() if labels else None
 
 
 def _read_json(path: Path) -> dict:
+    if path.is_symlink():
+        return {}
     try:
         value = json.loads(path.read_text(encoding="utf-8"))
         return value if isinstance(value, dict) else {}
@@ -84,16 +105,36 @@ def _read_json(path: Path) -> dict:
         return {}
 
 
+def _is_real_descendant(path: Path, root: Path) -> bool:
+    """Reject aliases so one visible run cannot own another run's files."""
+    try:
+        absolute = path.absolute()
+        return absolute != root and absolute.is_relative_to(root) and absolute.resolve() == absolute
+    except (OSError, RuntimeError):
+        return False
+
+
 def _report_dirs(results_dir: Path):
     if not results_dir.exists():
         return
+    results_dir = results_dir.resolve()
     seen: set[Path] = set()
     for report_dir in results_dir.glob("*/*/reports"):
-        if report_dir.is_dir() and report_dir not in seen:
+        if (
+            report_dir.is_dir()
+            and _is_real_descendant(report_dir, results_dir)
+            and not (report_dir / ".web-hidden").exists()
+            and report_dir not in seen
+        ):
             seen.add(report_dir)
             yield report_dir
     for complete in results_dir.glob("reports/*/complete_report.md"):
-        if complete.parent not in seen:
+        if (
+            not complete.is_symlink()
+            and _is_real_descendant(complete.parent, results_dir)
+            and not (complete.parent / ".web-hidden").exists()
+            and complete.parent not in seen
+        ):
             seen.add(complete.parent)
             yield complete.parent
 
@@ -110,17 +151,18 @@ def _identify(report_dir: Path, results_dir: Path) -> tuple[str, str]:
 
 
 def _file_map(report_dir: Path) -> dict[str, Path]:
-    files = {p.stem: p for p in report_dir.glob("*.md") if p.is_file()}
+    files = {p.stem: p for p in report_dir.glob("*.md") if p.is_file() and not p.is_symlink()}
     for section_dir in report_dir.glob("[1-5]_*"):
-        if section_dir.is_dir():
+        if section_dir.is_dir() and not section_dir.is_symlink():
             for p in section_dir.glob("*.md"):
-                files.setdefault(f"{section_dir.name}_{p.stem}", p)
+                if p.is_file() and not p.is_symlink():
+                    files.setdefault(f"{section_dir.name}_{p.stem}", p)
     return files
 
 
 def scan_runs(results_dir: Path) -> list[dict]:
     """Read both legacy ticker/date reports and programmatic report trees."""
-    results_dir = Path(results_dir)
+    results_dir = Path(results_dir).resolve()
     runs = []
     for report_dir in _report_dirs(results_dir) or ():
         ticker, analysis_date = _identify(report_dir, results_dir)
@@ -129,19 +171,22 @@ def scan_runs(results_dir: Path) -> list[dict]:
         decision_path = files.get("final_trade_decision") or files.get("5_portfolio_decision")
         decision = decision_path.read_text(encoding="utf-8") if decision_path else ""
         stat = report_dir.stat()
+        run_id = _run_id(report_dir)
         item = {
-            "id": metadata.get("id") or _run_id(report_dir),
+            "id": run_id,
             "ticker": metadata.get("ticker") or ticker,
             "analysis_date": metadata.get("analysis_date") or analysis_date,
             "depth": metadata.get("depth", "Not available"),
             "status": metadata.get("status", "done"),
-            "rating": metadata.get("rating") or extract_rating(decision) or "Not available",
+            "rating": _final_rating(decision) or "Not available",
             "created_at": metadata.get("created_at") or datetime.fromtimestamp(stat.st_mtime, timezone.utc).isoformat(),
             "elapsed_seconds": metadata.get("elapsed_seconds", "Not available"),
             "error": metadata.get("error"),
             "report_dir": str(report_dir),
         }
         runs.append(item)
+    if len({run["id"] for run in runs}) != len(runs):
+        raise OSError("Run identifier collision")
     return sorted(runs, key=lambda run: str(run["created_at"]), reverse=True)
 
 
@@ -151,10 +196,22 @@ def find_run(results_dir: Path, run_id: str) -> dict | None:
 
 def read_run(results_dir: Path, run_id: str) -> dict | None:
     run = find_run(results_dir, run_id)
+    if not run and re.fullmatch(r"[A-Za-z0-9_-]{1,80}", run_id):
+        root = Path(results_dir).resolve()
+        report_dir = root / ".web-runs" / run_id / "reports"
+        if _is_real_descendant(report_dir, root) and _read_json(report_dir.parent / "metadata.json").get("id") == run_id:
+            run = next((item for item in scan_runs(root) if item["report_dir"] == str(report_dir)), None)
     if not run:
         return None
     report_dir = Path(run.pop("report_dir"))
-    run["sections"] = {key: path.read_text(encoding="utf-8") for key, path in _file_map(report_dir).items()}
+    try:
+        if _run_id(report_dir) != run["id"]:
+            return None
+        run["sections"] = {key: path.read_text(encoding="utf-8") for key, path in _file_map(report_dir).items()}
+        if _run_id(report_dir) != run["id"]:
+            return None
+    except (FileNotFoundError, NotADirectoryError):
+        return None
     return run
 
 
@@ -164,8 +221,48 @@ def report_file(results_dir: Path, run_id: str, section: str) -> Path | None:
     run = find_run(results_dir, run_id)
     if not run:
         return None
-    path = _file_map(Path(run["report_dir"])).get(section)
-    return path if path and path.is_file() else None
+    report_dir = Path(run["report_dir"])
+    try:
+        if _run_id(report_dir) != run["id"]:
+            return None
+        path = _file_map(report_dir).get(section)
+        return path if path and path.is_file() and _run_id(report_dir) == run["id"] else None
+    except (FileNotFoundError, NotADirectoryError):
+        return None
+
+
+def delete_run(results_dir: Path, run_id: str) -> bool:
+    """Hide one report instance from history without deleting its files."""
+    root = Path(results_dir).resolve()
+    run = find_run(root, run_id)
+    if not run:
+        return False
+    report_dir = Path(run["report_dir"]).absolute()
+    if not _is_real_descendant(report_dir, root):
+        raise OSError("Report path is outside the results directory")
+    relative = report_dir.relative_to(root)
+    if not (
+        len(relative.parts) == 3 and relative.parts[2] == "reports" and relative.parts[0] != "reports"
+        or len(relative.parts) == 2 and relative.parts[0] == "reports"
+    ):
+        raise OSError("Unrecognized report layout")
+    flags = os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW
+    descriptor = os.open(root, flags)
+    try:
+        for part in relative.parts:
+            child = os.open(part, flags, dir_fd=descriptor)
+            os.close(descriptor)
+            descriptor = child
+        if _run_id(report_dir, os.fstat(descriptor)) != run_id:
+            return False
+        try:
+            marker = os.open(".web-hidden", os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600, dir_fd=descriptor)
+        except FileExistsError:
+            return False
+        os.close(marker)
+    finally:
+        os.close(descriptor)
+    return True
 
 
 def _write_canonical_reports(final_state: dict, report_dir: Path) -> None:

@@ -17,10 +17,12 @@ from fastapi.responses import FileResponse, HTMLResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
+from .overview import build_overview
 from .runs import (
     AnalysisRequest,
     DuplicateRunError,
     RunManager,
+    delete_run,
     read_run,
     report_file,
     scan_runs,
@@ -145,6 +147,10 @@ def create_app(results_dir: Path | None = None, executor=None, frontend_dist: Pa
     def history(_=Depends(session)):
         return [{key: value for key, value in run.items() if key != "report_dir"} for run in scan_runs(root)]
 
+    @app.get("/api/overview")
+    def overview(_=Depends(session)):
+        return build_overview(root)
+
     @app.post("/api/runs", status_code=202)
     def start_run(payload: AnalysisRequest, _=Depends(csrf)):
         try:
@@ -176,6 +182,15 @@ def create_app(results_dir: Path | None = None, executor=None, frontend_dist: Pa
         if not run:
             raise HTTPException(404, "Run not found")
         return run
+
+    @app.delete("/api/runs/{run_id}", status_code=204)
+    def remove_run(run_id: str, _=Depends(csrf)):
+        try:
+            removed = delete_run(root, run_id)
+        except OSError as exc:
+            raise HTTPException(500, "Could not remove report") from exc
+        if not removed:
+            raise HTTPException(404, "Run not found")
 
     @app.get("/api/runs/{run_id}/raw/{section}")
     def raw(run_id: str, section: str, _=Depends(session)):

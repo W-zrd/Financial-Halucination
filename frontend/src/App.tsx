@@ -1,6 +1,7 @@
 import { FormEvent, useEffect, useMemo, useRef, useState } from 'react'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
+import Overview, { type OverviewData } from './Overview'
 import './App.css'
 
 type Session = { username: string; csrf_token: string }
@@ -45,6 +46,15 @@ const labels: Record<string, string> = {
 }
 const terminalStatuses = new Set(['done', 'failed', 'cancelled'])
 
+function BrandIcon() {
+  return <svg className="brand-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" focusable="false">
+    <line x1="2" x2="22" y1="12" y2="12" />
+    <line x1="12" x2="12" y1="2" y2="22" />
+    <path d="m20 16-4-4 4-4" /><path d="m4 8 4 4-4 4" />
+    <path d="m16 4-4 4-4-4" /><path d="m8 20 4-4 4 4" />
+  </svg>
+}
+
 async function api<T>(path: string, init?: RequestInit): Promise<T> {
   const response = await fetch(path, {
     ...init,
@@ -79,7 +89,7 @@ function Login({ onLogin }: { onLogin: (session: Session) => void }) {
 
   return <main className="login-shell">
     <form className="login-card" onSubmit={submit}>
-      <div className="brand-mark" aria-hidden="true">TA</div>
+      <div className="brand-mark"><BrandIcon /></div>
       <div className="eyebrow">PRIVATE ANALYSIS NODE</div>
       <h1>TradingAgents</h1>
       <p>Sign in to the research console.</p>
@@ -94,7 +104,11 @@ function Login({ onLogin }: { onLogin: (session: Session) => void }) {
 export default function App() {
   const [session, setSession] = useState<Session | null | undefined>(undefined)
   const [runs, setRuns] = useState<Run[]>([])
+  const historyRequest = useRef(0)
+  const [overview, setOverview] = useState<OverviewData | null>(null)
+  const overviewRequest = useRef(0)
   const [selected, setSelected] = useState<Run | null>(null)
+  const openRunRequest = useRef(0)
   const [ticker, setTicker] = useState('AMD')
   const [analysisDate, setAnalysisDate] = useState(new Date().toISOString().slice(0, 10))
   const [depth, setDepth] = useState(3)
@@ -102,27 +116,61 @@ export default function App() {
   const [starting, setStarting] = useState(false)
   const [jobs, setJobs] = useState<ActiveJob[]>([])
   const [raw, setRaw] = useState(false)
-  const [view, setView] = useState<'new' | 'jobs' | 'reports'>('new')
+  const [view, setView] = useState<'new' | 'jobs' | 'reports' | 'overview'>('new')
   const [focusedJobId, setFocusedJobId] = useState('')
+  const [expandedTicker, setExpandedTicker] = useState('')
+  const [removing, setRemoving] = useState<string[]>([])
+  const removalPending = useRef(new Set<string>())
+  const removedRuns = useRef(new Set<string>())
   const currentFocus = useRef({ view, id: focusedJobId })
   currentFocus.current = { view, id: focusedJobId }
   const focusedJob = jobs.find(job => job.id === focusedJobId) || jobs[0]
   const streams = useRef<Record<string, EventSource>>({})
   const receivedEvents = useRef<Record<string, number>>({})
   const maxDate = useMemo(() => new Date().toISOString().slice(0, 10), [])
+  const groupedRuns = useMemo(() => {
+    const groups = new Map<string, Run[]>()
+    runs.forEach(run => {
+      const name = String(run.ticker || 'Not available').toUpperCase()
+      groups.set(name, [...(groups.get(name) || []), run])
+    })
+    return [...groups.entries()]
+      .sort(([left], [right]) => left.localeCompare(right))
+      .map(([name, items]) => [name, items.sort((left, right) =>
+        right.analysis_date.localeCompare(left.analysis_date) || right.created_at.localeCompare(left.created_at)
+      )] as const)
+  }, [runs])
+
+  async function loadOverview() {
+    const request = ++overviewRequest.current
+    setOverview(null)
+    try {
+      const snapshot = await api<OverviewData>('/api/overview')
+      if (request === overviewRequest.current) setOverview(snapshot)
+    } catch (err) {
+      if (request === overviewRequest.current) throw err
+    }
+  }
+
+  async function showOverview() {
+    setView('overview')
+    setError('')
+    try { await loadOverview() }
+    catch (err) { setError(err instanceof Error ? err.message : 'Unable to load dashboard') }
+  }
 
   async function loadHistory() {
+    const request = ++historyRequest.current
     const history = await api<Run[]>('/api/runs')
-    setRuns(history)
+    if (request === historyRequest.current) setRuns(history.filter(run => !removedRuns.current.has(run.id)))
     return history
   }
 
   async function restoreWorkspace() {
-    const [history, savedJobs] = await Promise.all([
-      api<Run[]>('/api/runs'),
+    const [, savedJobs] = await Promise.all([
+      loadHistory(),
       api<Job[]>('/api/jobs'),
     ])
-    setRuns(history)
     const active = (Array.isArray(savedJobs) ? savedJobs : [])
       .filter(job => job.status === 'queued' || job.status === 'running')
       .map(job => ({ ...job, events: [] }))
@@ -141,14 +189,52 @@ export default function App() {
     return () => Object.values(streams.current).forEach(stream => stream.close())
   }, [])
 
-  async function openRun(run: Run) {
+  async function openRun(run: Pick<Run, 'id'>) {
+    if (removalPending.current.has(run.id) || removedRuns.current.has(run.id)) return
+    const request = ++openRunRequest.current
     setError('')
     setRaw(false)
     try {
-      setSelected(await api<Run>(`/api/runs/${run.id}`))
+      const report = await api<Run>(`/api/runs/${run.id}`)
+      if (request !== openRunRequest.current || removalPending.current.has(report.id) || removedRuns.current.has(report.id)) return
+      setSelected(report)
       setView('reports')
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Unable to open report')
+    }
+  }
+
+  async function removeRun(run: Run, descriptor: string) {
+    if (removalPending.current.has(run.id)) return
+    if (!window.confirm(`Remove the ${run.ticker} analysis for ${descriptor} from history? Report files will be kept.`)) return
+    removalPending.current.add(run.id)
+    setRemoving(current => [...current, run.id])
+    setError('')
+    try {
+      await api(`/api/runs/${run.id}`, {
+        method: 'DELETE',
+        headers: { 'X-CSRF-Token': session!.csrf_token },
+      })
+      removedRuns.current.add(run.id)
+      historyRequest.current++
+      overviewRequest.current++
+      setOverview(null)
+      setRuns(current => current.filter(item => item.id !== run.id))
+      setSelected(current => current?.id === run.id ? null : current)
+      try {
+        await loadHistory()
+      } catch {
+        setError('Report removed, but history could not refresh. Reload to retry.')
+      }
+      if (currentFocus.current.view === 'overview') {
+        try { await loadOverview() }
+        catch { setError('Report removed, but the dashboard could not refresh. Reload to retry.') }
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Unable to remove report')
+    } finally {
+      removalPending.current.delete(run.id)
+      setRemoving(current => current.filter(id => id !== run.id))
     }
   }
 
@@ -161,16 +247,30 @@ export default function App() {
   async function finishJob(id: string, status: string) {
     streams.current[id]?.close()
     delete streams.current[id]
+    if (currentFocus.current.view === 'overview') {
+      overviewRequest.current++
+      setOverview(null)
+    }
     try {
       await loadHistory()
-      if (status === 'done' && currentFocus.current.view === 'jobs' && currentFocus.current.id === id) {
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Analysis finished, but history could not refresh.')
+      return
+    }
+    if (currentFocus.current.view === 'overview') {
+      try { await loadOverview() }
+      catch (err) { setError(err instanceof Error ? err.message : 'Analysis finished, but the dashboard could not refresh.') }
+      return
+    }
+    if (status === 'done' && currentFocus.current.view === 'jobs' && currentFocus.current.id === id && !removalPending.current.has(id) && !removedRuns.current.has(id)) {
+      try {
         const report = await api<Run>(`/api/runs/${id}`)
-        if (currentFocus.current.view === 'jobs' && currentFocus.current.id === id) {
+        if (currentFocus.current.view === 'jobs' && currentFocus.current.id === id && !removalPending.current.has(report.id) && !removedRuns.current.has(report.id)) {
           setSelected(report); setRaw(false); setView('reports')
         }
+      } catch {
+        setError('Analysis finished, but the saved report could not be opened.')
       }
-    } catch {
-      setError('Analysis finished, but the saved report could not be opened.')
     }
   }
 
@@ -285,7 +385,7 @@ export default function App() {
   return <div className="app-shell">
     <header className="topbar">
       <div className="brand">
-        <div className="brand-mark" aria-hidden="true">TA</div>
+        <div className="brand-mark"><BrandIcon /></div>
         <div><div className="eyebrow">PRIVATE RESEARCH / MULTI-AGENT FINANCE</div><h1>TradingAgents</h1></div>
       </div>
       <div className="session"><span className="status-dot" aria-hidden="true" /><span>{session.username}</span><button className="ghost" onClick={logout}>Sign out</button></div>
@@ -295,6 +395,7 @@ export default function App() {
       <aside className="command-sidebar" aria-label="Workspace navigation">
         <nav className="workspace-nav" aria-label="Workspace sections">
           <button aria-current={view === 'new' ? 'page' : undefined} onClick={() => setView('new')}>New analysis <span>＋</span></button>
+          <button aria-current={view === 'overview' ? 'page' : undefined} onClick={() => void showOverview()}>Analysis dashboard <span>▦</span></button>
           <button aria-current={view === 'jobs' ? 'page' : undefined} onClick={() => setView('jobs')}>Live runs <span>{jobs.filter(job => !terminalStatuses.has(job.status)).length}</span></button>
           <button aria-current={view === 'reports' ? 'page' : undefined} onClick={() => setView('reports')}>Saved reports <span>{runs.length}</span></button>
         </nav>
@@ -308,13 +409,25 @@ export default function App() {
         </section>
         <section className="history" aria-label="Saved reports">
           <div className="panel-title">RUN HISTORY <small>{runs.length}</small></div>
-          <div className="history-list" aria-label="Analysis run history">{runs.length ? runs.map(run => <button key={run.id} className={selected?.id === run.id && view === 'reports' ? 'history-row selected' : 'history-row'} onClick={() => openRun(run)} aria-label={`${run.ticker} ${run.analysis_date}`} aria-pressed={selected?.id === run.id && view === 'reports'}><b>{run.ticker}</b><em className={`rating ${String(run.rating).toLowerCase()}`}>{run.rating || 'Not available'}</em><small>{run.analysis_date} · {depths.some(item => String(item.value) === String(run.depth)) ? `D${run.depth}` : 'Depth not available'}</small></button>) : <p className="empty">No completed runs.</p>}</div>
+          <div className="history-list" aria-label="Analysis run history">{groupedRuns.length ? groupedRuns.map(([name, tickerRuns]) => <div className={`ticker-group ${expandedTicker === name ? 'expanded' : ''}`} key={name}>
+            <button className="ticker-toggle" aria-label={`Show ${name} report dates`} aria-expanded={expandedTicker === name} onClick={() => setExpandedTicker(current => current === name ? '' : name)}><b>{name}</b><span>{tickerRuns.length}</span></button>
+            {expandedTicker === name && <div className="ticker-dates">{tickerRuns.map(run => {
+              const repeatedDate = tickerRuns.some(item => item !== run && item.analysis_date === run.analysis_date)
+              const descriptor = repeatedDate ? `${run.analysis_date} ${run.created_at || run.id}` : run.analysis_date
+              return <div className={selected?.id === run.id && view === 'reports' ? 'history-row selected' : 'history-row'} key={run.id}>
+              <button className="history-open" disabled={removing.includes(run.id)} onClick={() => openRun(run)} aria-label={`Open ${name} ${descriptor} report`} aria-pressed={selected?.id === run.id && view === 'reports'}>
+                <span><b>{run.analysis_date}</b><small>{repeatedDate ? `${run.created_at || run.id} · ` : ''}{depths.some(item => String(item.value) === String(run.depth)) ? `D${run.depth}` : 'Depth not available'}</small></span>
+                <em className={`rating ${String(run.rating).toLowerCase()}`}>{run.rating || 'Not available'}</em>
+              </button>
+              <button className="history-remove" disabled={removing.includes(run.id)} onClick={() => removeRun(run, descriptor)} aria-label={`Remove ${name} ${descriptor} report`} title="Remove this saved analysis">×</button>
+            </div>})}</div>}
+          </div>) : <p className="empty">No completed runs.</p>}</div>
         </section>
         <p className="sidebar-note">Research, not financial advice.<br />Review the evidence before acting.</p>
       </aside>
 
       <main className="output" id="workspace-output">
-        <div className="output-bar"><span>RESEARCH DESK / {view === 'new' ? 'SETUP' : view === 'jobs' ? 'LIVE ACTIVITY' : 'REPORT READER'}</span><span>{session.username}</span></div>
+        <div className="output-bar"><span>RESEARCH DESK / {view === 'new' ? 'SETUP' : view === 'overview' ? 'OVERVIEW' : view === 'jobs' ? 'LIVE ACTIVITY' : 'REPORT READER'}</span><span>{session.username}</span></div>
         {error && <div className="error workspace-error" role="alert">{error}</div>}
         <section className="command-panel" hidden={view !== 'new'} aria-labelledby="setup-title">
           <div className="section-title"><div><span className="section-number">01 / SETUP</span><h2 id="setup-title">Start a research run</h2></div><p>Choose a market target. Existing runs continue independently.</p></div>
@@ -330,11 +443,12 @@ export default function App() {
             <button className="run-button" disabled={starting}>{starting ? 'STARTING…' : 'RUN ANALYSIS'}</button>
           </form>
         </section>
+        {view === 'overview' && (overview ? <Overview data={overview} onOpenRun={id => openRun({ id })} /> : !error && <p className="empty">Loading saved analyses…</p>)}
         {view === 'jobs' && <section className="active-runs" aria-labelledby="active-runs-title">
           <div className="section-title"><div><span className="section-number">02 / INSPECT</span><h2 id="active-runs-title">Run activity</h2></div><p>Select a run in the queue to inspect its output.</p></div>
           {focusedJob ? <>
             <JobCard key={focusedJob.id} job={focusedJob} onStop={() => stop(focusedJob)} onReconnect={() => monitor(focusedJob)} />
-            {focusedJob.status === 'done' && <button className="open-report" onClick={() => openRun({ ...focusedJob, rating: '', created_at: '' })}>Open completed report →</button>}
+            {focusedJob.status === 'done' && <button className="open-report" onClick={() => openRun({ id: focusedJob.id })}>Open completed report →</button>}
           </> : <p className="empty">No live runs. Start a new analysis to see agent activity here.</p>}
         </section>}
         {view === 'reports' && (selected ? <section className="report-area">
@@ -358,10 +472,11 @@ function JobCard({ job, onStop, onReconnect }: { job: ActiveJob; onStop: () => v
       {job.connection === 'live' ? 'Live connection' : `${job.connection === 'disconnected' ? 'Disconnected' : job.connection === 'reconnecting' ? 'Reconnecting' : 'Connecting'} — showing last received state`}
       {job.connection === 'disconnected' && <button className="ghost" onClick={onReconnect}>Reconnect stream</button>}
     </div>}
-    <div className="activity-stream" aria-live="polite" aria-label={`${job.ticker} live activity`}>
-      {job.events.length ? job.events.map((entry, index) => <div className="activity-line" key={`${index}-${entry.message}`}>
-        <span className="activity-index">{String(index + 1).padStart(2, '0')}</span>
-        <div>{entry.eventType && <b>{String(entry.eventType).replaceAll('_', ' ')}</b>}<p>{entry.message}</p></div>
+    <div className="activity-header"><span>AGENT TIMELINE</span><span>{job.events.length} {job.events.length === 1 ? 'EVENT' : 'EVENTS'}</span></div>
+    <div className="activity-stream" role="log" aria-live="polite" aria-label={`${job.ticker} live activity`} tabIndex={0}>
+      {job.events.length ? job.events.map((entry, index) => <div className={`activity-line event-${entry.eventType || 'update'}`} key={`${index}-${entry.message}`}>
+        <div className="activity-node"><span>{String(index + 1).padStart(2, '0')}</span></div>
+        <div className="activity-entry"><b>{String(entry.eventType || 'update').replaceAll('_', ' ')}</b><p>{entry.message}</p></div>
       </div>) : <p className="stream-empty">Waiting for agent output…</p>}
       {job.error && <p className="error">{job.error}</p>}
     </div>
