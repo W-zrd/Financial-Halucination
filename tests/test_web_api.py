@@ -150,7 +150,7 @@ def test_history_ignores_symlinked_report_aliases(tmp_path):
     ]
 
 
-def test_overview_uses_latest_saved_decision_and_keeps_unverified_budget_in_cash(tmp_path, monkeypatch):
+def test_overview_allocates_only_latest_positive_decisions(tmp_path, monkeypatch):
     root = tmp_path / "results"
     fixtures = [
         ("AMD", "2026-09-23", "Buy", "**Entry Price**: 549 — 10 EMA pullback\n**Stop Loss**: 523 — 1x ATR below structure"),
@@ -172,14 +172,15 @@ def test_overview_uses_latest_saved_decision_and_keeps_unverified_budget_in_cash
         body = overview.json()
         assert body["counts"] == {"buy": 1, "hold": 1, "sell": 1, "unknown": 0}
         assert [row["ticker"] for row in body["rows"]] == ["MU", "AMD", "AAPL"]
-        assert body["budget"] == 105 and body["cash"] == 105
+        assert body["budget"] == 105 and body["cash"] == 55
         assert sum(row["allocation"] for row in body["rows"]) + body["cash"] == body["budget"]
         mu = body["rows"][0]
         assert mu["action"] == "WAIT FOR PULLBACK"
         assert mu["entry"].startswith("$1,040")
         assert mu["tp1"] == mu["tp2"] == mu["risk_reward"] == "Not available"
         assert mu["score"] is None and mu["confidence"] == "Not available"
-        assert mu["allocation"] == 0 and mu["risk_dollars"] is None
+        assert mu["allocation"] == 50 and mu["risk_dollars"] is None
+        assert body["rows"][1]["allocation"] == body["rows"][2]["allocation"] == 0
         assert body["rows"][1]["rating"] == "Hold"
         assert body["rows"][2]["stop_loss"] == "Not available"
 
@@ -191,6 +192,21 @@ def test_overview_empty_history_is_cash_only(tmp_path, monkeypatch):
         assert body["rows"] == []
         assert body["cash"] == body["budget"] == 105
         assert body["counts"] == {"buy": 0, "hold": 0, "sell": 0, "unknown": 0}
+
+
+def test_overview_weights_buy_and_overweight_in_a_monthly_target(tmp_path, monkeypatch):
+    root = tmp_path / "results"
+    for ticker, rating in (("MU", "Buy"), ("AMD", "Overweight"), ("SPY", "Hold")):
+        report = root / ticker / "2026-09-24" / "reports"
+        report.mkdir(parents=True)
+        (report / "final_trade_decision.md").write_text(f"**Rating**: {rating}")
+    with _client(tmp_path, monkeypatch) as client:
+        _login(client)
+        body = client.get("/api/overview").json()
+        allocation = {row["ticker"]: row["allocation"] for row in body["rows"]}
+        assert allocation == {"MU": 45, "AMD": 30, "SPY": 0}
+        assert body["cash"] == 30
+        assert sum(allocation.values()) + body["cash"] == body["budget"] == 105
 
 
 def test_overview_calculates_only_sourced_protective_levels(tmp_path, monkeypatch):
@@ -212,7 +228,7 @@ def test_overview_calculates_only_sourced_protective_levels(tmp_path, monkeypatc
         assert row["tp1"] == "$110.00" and row["tp2"] == "$120.00"
         assert row["risk_reward"] == "2.00:1"
         assert row["invalidation"] == "Earnings show a sustained margin decline."
-        assert row["risk_dollars"] is None and row["allocation"] == 0
+        assert row["risk_dollars"] is None and row["allocation"] == 50
 
 
 def test_overview_prefers_final_decision_over_stale_snapshot_rating(tmp_path, monkeypatch):

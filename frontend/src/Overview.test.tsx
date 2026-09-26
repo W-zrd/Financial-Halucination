@@ -15,14 +15,14 @@ const data: OverviewData = {
   ],
 }
 
-test('renders ranked conditional plans and a budget-reconciling allocation table', async () => {
+test('renders large quantitative allocation and rating graphics with funded plans', async () => {
   const onOpenRun = vi.fn()
   render(<Overview data={data} onOpenRun={onOpenRun} />)
-  expect(screen.getByRole('heading', { name: /conditional overview/i })).toBeInTheDocument()
-  expect(screen.getByText(/not live advice/i)).toBeInTheDocument()
-  const ratings = screen.getByRole('list', { name: /rating distribution/i })
-  expect(within(ratings).getByText('Buy')).toBeInTheDocument()
-  expect(within(ratings).getAllByText('1')).toHaveLength(2)
+  expect(screen.getByRole('heading', { name: /monthly allocation plan/i })).toBeInTheDocument()
+  expect(screen.getByText(/not current holdings or live advice/i)).toBeInTheDocument()
+  expect(screen.getByRole('img', { name: /monthly allocation.*AMD.*\$40.*cash.*\$65/i })).toBeInTheDocument()
+  expect(screen.getByRole('img', { name: /rating distribution.*buy or overweight 1.*hold 1/i })).toBeInTheDocument()
+  expect(screen.getByRole('img', { name: /underweight or sell 0.*unknown 0/i })).toBeInTheDocument()
   const priority = screen.getByRole('table', { name: /ranked priorities/i })
   expect(within(priority).getAllByRole('row')[1]).toHaveTextContent('AMD')
   expect(within(priority).getAllByRole('row')[2]).toHaveTextContent('MU')
@@ -32,22 +32,39 @@ test('renders ranked conditional plans and a budget-reconciling allocation table
   expect(within(allocation).getByText('$105.00')).toBeInTheDocument()
   expect(screen.getByText('Break below support')).toBeInTheDocument()
   expect(screen.getByText('30 days')).toBeInTheDocument()
+  expect(screen.getByRole('article', { name: /AMD conditional plan/i })).toHaveTextContent('$40.00')
+  expect(screen.queryByRole('article', { name: /MU conditional plan/i })).not.toBeInTheDocument()
   await userEvent.click(screen.getByRole('button', { name: /open AMD report/i }))
   expect(onOpenRun).toHaveBeenCalledWith('run-amd')
 })
 
-test('shows unavailable values explicitly without inventing a plan', () => {
+test('shows unavailable values explicitly without inventing a trade', () => {
   render(<Overview data={{ ...data, rows: [data.rows[1]] }} onOpenRun={vi.fn()} />)
+  expect(screen.getByRole('img', { name: /allocation chart unavailable.*do not match the budget/i })).toBeInTheDocument()
+  expect(screen.getByRole('status')).toHaveTextContent('chart withheld')
+  expect(screen.queryByRole('img', { name: /monthly allocation:.*cash/i })).not.toBeInTheDocument()
   const priority = screen.getByRole('table', { name: /ranked priorities/i })
   expect(within(priority).getAllByText('Not available').length).toBeGreaterThan(0)
-  const plan = screen.getByRole('article', { name: /MU conditional plan/i })
-  expect(within(plan).getAllByText('Not available').length).toBeGreaterThan(5)
-  expect(within(plan).queryByText('Strong earnings')).not.toBeInTheDocument()
+  expect(screen.queryByRole('article', { name: /MU conditional plan/i })).not.toBeInTheDocument()
+  expect(screen.getByRole('table', { name: /ranked priorities/i })).toHaveTextContent('Not available')
+})
+
+test('keeps long sourced levels in disclosure and surfaces their leading numbers', async () => {
+  const entry = '$1,040.00 · limit order after pullback confirmation'
+  const stop = '$950.00 · hard invalidation after structure break'
+  render(<Overview data={{ ...data, rows: [{ ...data.rows[0], entry, stop_loss: stop }] }} onOpenRun={vi.fn()} />)
+  const plan = screen.getByRole('article', { name: /AMD conditional plan/i })
+  expect(within(plan).getByText('$1,040.00')).toBeInTheDocument()
+  expect(within(plan).getByText('$950.00')).toBeInTheDocument()
+  expect(within(screen.getByRole('table', { name: /ranked priorities/i })).getByText('$1,040.00')).toBeInTheDocument()
+  await userEvent.click(within(plan).getByText('Conditions & source detail'))
+  expect(within(plan).getByText(entry)).toBeInTheDocument()
+  expect(within(plan).getByText(stop)).toBeInTheDocument()
 })
 
 test('renders an empty overview and zero-width distribution safely', () => {
   render(<Overview data={{ budget: 105, cash: 105, counts: { buy: 0, hold: 0, sell: 0, unknown: 0 }, rows: [] }} onOpenRun={vi.fn()} />)
-  expect(screen.getAllByText(/no completed analyses/i)).toHaveLength(2)
+  expect(screen.getAllByText(/no completed analyses/i)).toHaveLength(1)
   expect(screen.getByRole('table', { name: /allocation/i })).toHaveTextContent('$105.00')
-  expect(screen.getByRole('list', { name: /rating distribution/i })).toHaveTextContent('0')
+  expect(screen.getByRole('img', { name: /rating distribution.*buy or overweight 0.*hold 0.*underweight or sell 0.*unknown 0/i })).toBeInTheDocument()
 })

@@ -21,9 +21,9 @@ test('opens analysis dashboard from the menu using saved overview data', async (
     const url = String(input)
     if (url.endsWith('/api/session')) return ok({ username: 'analyst', csrf_token: 'csrf' })
     if (url.endsWith('/api/overview')) return ok({
-      budget: 105, cash: 105,
+      budget: 105, cash: 55,
       counts: { buy: 1, hold: 0, sell: 0, unknown: 0 },
-      rows: [{ id: 'run-mu', ticker: 'MU', analysis_date: '2026-09-24', rating: 'Buy', score: null, action: 'WAIT FOR PULLBACK', horizon: 'Not available', allocation: 0, entry: '$1,040', tp1: 'Not available', tp2: 'Not available', stop_loss: '$950', risk_reward: 'Not available', confidence: 'Not available', invalidation: 'Not available', time_stop: 'Review at next contribution', risk_dollars: null, stop_distance_pct: 8.65, rationale: 'Await a verified entry', caveat: 'Not a live quote' }],
+      rows: [{ id: 'run-mu', ticker: 'MU', analysis_date: '2026-09-24', rating: 'Buy', score: null, action: 'WAIT FOR PULLBACK', horizon: 'Not available', allocation: 50, entry: '$1,040', tp1: 'Not available', tp2: 'Not available', stop_loss: '$950', risk_reward: 'Not available', confidence: 'Not available', invalidation: 'Not available', time_stop: 'Review at next contribution', risk_dollars: null, stop_distance_pct: 8.65, rationale: 'Await a verified entry', caveat: 'Not a live quote' }],
     })
     if (url.endsWith('/api/runs')) return ok([{ id: 'run-mu', ticker: 'MU', analysis_date: '2026-09-24', depth: 3, status: 'done', rating: 'Buy', created_at: '2026-09-24' }])
     if (url.endsWith('/api/runs/run-mu')) return ok({ id: 'run-mu', ticker: 'MU', analysis_date: '2026-09-24', rating: 'Buy', sections: { final_trade_decision: '**Rating**: Buy' } })
@@ -31,7 +31,8 @@ test('opens analysis dashboard from the menu using saved overview data', async (
   })
   render(<App />)
   await userEvent.click(await screen.findByRole('button', { name: /analysis dashboard/i }))
-  expect(await screen.findByRole('heading', { name: 'Executive summary' })).toBeInTheDocument()
+  expect(await screen.findByRole('heading', { name: 'Monthly allocation plan' })).toBeInTheDocument()
+  expect(screen.getByRole('img', { name: /monthly allocation: MU \$50.*cash \$55/i })).toBeInTheDocument()
   expect(screen.getByRole('table', { name: 'Allocation' })).toHaveTextContent('$105.00')
   await userEvent.click(screen.getByRole('button', { name: /open MU report/i }))
   expect(await screen.findByText('FINAL RATING')).toBeInTheDocument()

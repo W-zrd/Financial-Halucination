@@ -8,6 +8,9 @@ from pathlib import Path
 from tradingagents.web.runs import read_run, scan_runs
 
 BUDGET_CENTS = 10_500
+PLANNED_SLEEVE_CENTS = 7_500
+SINGLE_NAME_CAP_CENTS = 5_000
+ALLOCATION_WEIGHT = {"Buy": 3, "Overweight": 2}
 MISSING = "Not available"
 RATING_ORDER = {"Buy": 0, "Overweight": 1, "Hold": 2, "Underweight": 3, "Sell": 4}
 MONEY = re.compile(r"^\$?((?:\d{1,3}(?:,\d{3})+|\d+)(?:\.\d+)?)\b")
@@ -100,7 +103,23 @@ def build_overview(results_dir: Path) -> dict:
         })
 
     rows.sort(key=lambda row: (RATING_ORDER.get(row["rating"], 5), row["ticker"]))
+    eligible = [row for row in rows if row["rating"] in ALLOCATION_WEIGHT]
+    if eligible:
+        weight_total = sum(ALLOCATION_WEIGHT[row["rating"]] for row in eligible)
+        assigned = []
+        for row in eligible:
+            cents = min(SINGLE_NAME_CAP_CENTS, PLANNED_SLEEVE_CENTS * ALLOCATION_WEIGHT[row["rating"]] // weight_total)
+            assigned.append(cents)
+        remainder = PLANNED_SLEEVE_CENTS - sum(assigned)
+        for index, cents in enumerate(assigned):
+            extra = min(remainder, SINGLE_NAME_CAP_CENTS - cents)
+            assigned[index] += extra
+            remainder -= extra
+        for row, cents in zip(eligible, assigned, strict=True):
+            row["allocation"] = cents / 100
+            row["rationale"] = "Proposed monthly target, not an order. Verify current price, existing holdings, and the saved report's entry conditions before deployment."
+    cash_cents = BUDGET_CENTS - sum(round(row["allocation"] * 100) for row in rows)
     return {
-        "budget": BUDGET_CENTS / 100, "cash": BUDGET_CENTS / 100,
+        "budget": BUDGET_CENTS / 100, "cash": cash_cents / 100,
         "counts": counts, "rows": rows,
     }
