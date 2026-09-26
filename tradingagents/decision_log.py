@@ -1,6 +1,8 @@
 """Append-only markdown decision log for TradingAgents."""
 
+import fcntl
 import re
+from contextlib import contextmanager
 from pathlib import Path
 
 from tradingagents.agents.rating import parse_rating
@@ -36,28 +38,32 @@ class TradingMemoryLog:
         """Append pending entry at end of propagate(). No LLM call."""
         if not self._log_path:
             return
-        # Idempotency guard: fast raw-text scan instead of full parse. Any entry
-        # for this ticker and date blocks another, pending or settled: a re-run
-        # after the outcome landed would otherwise count the same decision twice
-        # in past context and in every aggregate over the log.
-        if self._log_path.exists():
-            raw = self._log_path.read_text(encoding="utf-8")
-            for line in raw.splitlines():
-                if line.startswith(f"[{trade_date} | {ticker} |") and line.endswith("]"):
-                    return
-        rating = parse_rating(final_trade_decision)
-        tag = f"[{trade_date} | {ticker} | {rating} | pending]"
-        entry = f"{tag}\n\nDECISION:\n{final_trade_decision}{self._SEPARATOR}"
-        with open(self._log_path, "a", encoding="utf-8") as f:
-            f.write(entry)
+        with self._locked(exclusive=True):
+            # Idempotency guard: fast raw-text scan instead of full parse. Any entry
+            # for this ticker and date blocks another, pending or settled: a re-run
+            # after the outcome landed would otherwise count the same decision twice
+            # in past context and in every aggregate over the log.
+            if self._log_path.exists():
+                raw = self._log_path.read_text(encoding="utf-8")
+                for line in raw.splitlines():
+                    if line.startswith(f"[{trade_date} | {ticker} |") and line.endswith("]"):
+                        return
+            rating = parse_rating(final_trade_decision)
+            tag = f"[{trade_date} | {ticker} | {rating} | pending]"
+            entry = f"{tag}\n\nDECISION:\n{final_trade_decision}{self._SEPARATOR}"
+            with open(self._log_path, "a", encoding="utf-8") as f:
+                f.write(entry)
 
     # --- Read path (Phase A) ---
 
     def load_entries(self) -> list[dict]:
         """Parse all entries from log. Returns list of dicts."""
-        if not self._log_path or not self._log_path.exists():
+        if not self._log_path:
             return []
-        text = self._log_path.read_text(encoding="utf-8")
+        with self._locked(exclusive=False):
+            if not self._log_path.exists():
+                return []
+            text = self._log_path.read_text(encoding="utf-8")
         raw_entries = [e.strip() for e in text.split(self._SEPARATOR) if e.strip()]
         entries = []
         for raw in raw_entries:
@@ -128,53 +134,57 @@ class TradingMemoryLog:
         became known), and appends a REFLECTION section.  Uses a temp-file +
         os.replace() so a crash mid-write never corrupts the log.
         """
-        if not self._log_path or not self._log_path.exists():
+        if not self._log_path:
             return
 
-        text = self._log_path.read_text(encoding="utf-8")
-        blocks = text.split(self._SEPARATOR)
+        with self._locked(exclusive=True):
+            if not self._log_path.exists():
+                return
 
-        pending_prefix = f"[{trade_date} | {ticker} |"
-        raw_pct = f"{raw_return:+.1%}"
-        alpha_pct = f"{alpha_return:+.1%}"
+            text = self._log_path.read_text(encoding="utf-8")
+            blocks = text.split(self._SEPARATOR)
 
-        updated = False
-        new_blocks = []
-        for block in blocks:
-            stripped = block.strip()
-            if not stripped:
-                new_blocks.append(block)
-                continue
+            pending_prefix = f"[{trade_date} | {ticker} |"
+            raw_pct = f"{raw_return:+.1%}"
+            alpha_pct = f"{alpha_return:+.1%}"
 
-            lines = stripped.splitlines()
-            tag_line = lines[0].strip()
+            updated = False
+            new_blocks = []
+            for block in blocks:
+                stripped = block.strip()
+                if not stripped:
+                    new_blocks.append(block)
+                    continue
 
-            if (
-                not updated
-                and tag_line.startswith(pending_prefix)
-                and tag_line.endswith("| pending]")
-            ):
-                fields = [f.strip() for f in tag_line[1:-1].split("|")]
-                rating = fields[2]
-                new_tag = self._resolved_tag(
-                    trade_date, ticker, rating, raw_pct, alpha_pct, holding_days, resolution_date
-                )
-                rest = "\n".join(lines[1:])
-                new_blocks.append(
-                    f"{new_tag}\n\n{rest.lstrip()}\n\nREFLECTION:\n{reflection}"
-                )
-                updated = True
-            else:
-                new_blocks.append(block)
+                lines = stripped.splitlines()
+                tag_line = lines[0].strip()
 
-        if not updated:
-            return
+                if (
+                    not updated
+                    and tag_line.startswith(pending_prefix)
+                    and tag_line.endswith("| pending]")
+                ):
+                    fields = [f.strip() for f in tag_line[1:-1].split("|")]
+                    rating = fields[2]
+                    new_tag = self._resolved_tag(
+                        trade_date, ticker, rating, raw_pct, alpha_pct, holding_days, resolution_date
+                    )
+                    rest = "\n".join(lines[1:])
+                    new_blocks.append(
+                        f"{new_tag}\n\n{rest.lstrip()}\n\nREFLECTION:\n{reflection}"
+                    )
+                    updated = True
+                else:
+                    new_blocks.append(block)
 
-        new_blocks = self._apply_rotation(new_blocks)
-        new_text = self._SEPARATOR.join(new_blocks)
-        tmp_path = self._log_path.with_suffix(".tmp")
-        tmp_path.write_text(new_text, encoding="utf-8")
-        tmp_path.replace(self._log_path)
+            if not updated:
+                return
+
+            new_blocks = self._apply_rotation(new_blocks)
+            new_text = self._SEPARATOR.join(new_blocks)
+            tmp_path = self._log_path.with_suffix(".tmp")
+            tmp_path.write_text(new_text, encoding="utf-8")
+            tmp_path.replace(self._log_path)
 
     def batch_update_with_outcomes(self, updates: list[dict]) -> None:
         """Apply multiple outcome updates in a single read + atomic write.
@@ -182,54 +192,75 @@ class TradingMemoryLog:
         Each element of updates must have keys: ticker, trade_date,
         raw_return, alpha_return, holding_days, reflection.
         """
-        if not self._log_path or not self._log_path.exists() or not updates:
+        if not self._log_path or not updates:
             return
 
-        text = self._log_path.read_text(encoding="utf-8")
-        blocks = text.split(self._SEPARATOR)
+        with self._locked(exclusive=True):
+            if not self._log_path.exists():
+                return
 
-        update_map = {(u["trade_date"], u["ticker"]): u for u in updates}
+            text = self._log_path.read_text(encoding="utf-8")
+            blocks = text.split(self._SEPARATOR)
 
-        new_blocks = []
-        for block in blocks:
-            stripped = block.strip()
-            if not stripped:
-                new_blocks.append(block)
-                continue
+            update_map = {(u["trade_date"], u["ticker"]): u for u in updates}
 
-            lines = stripped.splitlines()
-            tag_line = lines[0].strip()
+            new_blocks = []
+            for block in blocks:
+                stripped = block.strip()
+                if not stripped:
+                    new_blocks.append(block)
+                    continue
 
-            matched = False
-            for (trade_date, ticker), upd in list(update_map.items()):
-                pending_prefix = f"[{trade_date} | {ticker} |"
-                if tag_line.startswith(pending_prefix) and tag_line.endswith("| pending]"):
-                    fields = [f.strip() for f in tag_line[1:-1].split("|")]
-                    rating = fields[2]
-                    raw_pct = f"{upd['raw_return']:+.1%}"
-                    alpha_pct = f"{upd['alpha_return']:+.1%}"
-                    new_tag = self._resolved_tag(
-                        trade_date, ticker, rating, raw_pct, alpha_pct,
-                        upd["holding_days"], upd.get("resolution_date"),
-                    )
-                    rest = "\n".join(lines[1:])
-                    new_blocks.append(
-                        f"{new_tag}\n\n{rest.lstrip()}\n\nREFLECTION:\n{upd['reflection']}"
-                    )
-                    del update_map[(trade_date, ticker)]
-                    matched = True
-                    break
+                lines = stripped.splitlines()
+                tag_line = lines[0].strip()
 
-            if not matched:
-                new_blocks.append(block)
+                matched = False
+                for (trade_date, ticker), upd in list(update_map.items()):
+                    pending_prefix = f"[{trade_date} | {ticker} |"
+                    if tag_line.startswith(pending_prefix) and tag_line.endswith("| pending]"):
+                        fields = [f.strip() for f in tag_line[1:-1].split("|")]
+                        rating = fields[2]
+                        raw_pct = f"{upd['raw_return']:+.1%}"
+                        alpha_pct = f"{upd['alpha_return']:+.1%}"
+                        new_tag = self._resolved_tag(
+                            trade_date, ticker, rating, raw_pct, alpha_pct,
+                            upd["holding_days"], upd.get("resolution_date"),
+                        )
+                        rest = "\n".join(lines[1:])
+                        new_blocks.append(
+                            f"{new_tag}\n\n{rest.lstrip()}\n\nREFLECTION:\n{upd['reflection']}"
+                        )
+                        del update_map[(trade_date, ticker)]
+                        matched = True
+                        break
 
-        new_blocks = self._apply_rotation(new_blocks)
-        new_text = self._SEPARATOR.join(new_blocks)
-        tmp_path = self._log_path.with_suffix(".tmp")
-        tmp_path.write_text(new_text, encoding="utf-8")
-        tmp_path.replace(self._log_path)
+                if not matched:
+                    new_blocks.append(block)
+
+            new_blocks = self._apply_rotation(new_blocks)
+            new_text = self._SEPARATOR.join(new_blocks)
+            tmp_path = self._log_path.with_suffix(".tmp")
+            tmp_path.write_text(new_text, encoding="utf-8")
+            tmp_path.replace(self._log_path)
 
     # --- Helpers ---
+
+    @contextmanager
+    def _locked(self, *, exclusive: bool):
+        """Lock the entire transaction, not the inode replaced on settlement.
+
+        All processes use a persistent sidecar; never unlink it, as waiters may
+        still hold its inode. Opening per operation also serializes instances
+        and threads without keeping inherited lock descriptors around.
+        """
+        assert self._log_path is not None
+        lock_path = self._log_path.with_name(self._log_path.name + ".lock")
+        with lock_path.open("a") as lock:
+            fcntl.flock(lock.fileno(), fcntl.LOCK_EX if exclusive else fcntl.LOCK_SH)
+            try:
+                yield
+            finally:
+                fcntl.flock(lock.fileno(), fcntl.LOCK_UN)
 
     @staticmethod
     def _resolved_tag(

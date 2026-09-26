@@ -3,7 +3,8 @@ set -euo pipefail
 
 repo_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 
-case "${1:-}" in
+selected="${1:-openagentic}"
+case "$selected" in
   zai)
     profile="$repo_dir/.env.zai"
     ;;
@@ -17,4 +18,4 @@ case "${1:-}" in
 esac
 
 install -m 600 "$profile" "$repo_dir/.env"
-printf 'Active TradingAgents environment: %s\n' "${1}"
+printf 'Active TradingAgents environment: %s\n' "$selected"

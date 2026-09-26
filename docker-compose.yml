@@ -8,6 +8,8 @@ services:
     env_file:
       - path: .env
         required: false
+      - path: .env.openagentic
+        required: false
       - path: .env.web
         required: false
     environment:

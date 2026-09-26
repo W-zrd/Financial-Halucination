@@ -11,8 +11,8 @@ for command in uv npm curl setsid; do
   }
 done
 
-[[ -f .env ]] || {
-  echo "Missing .env; copy .env.example and add the provider credentials." >&2
+[[ -f .env.openagentic ]] || {
+  echo "Missing .env.openagentic; copy .env.openagentic.example and add the OpenAgentic credential." >&2
   exit 1
 }
 [[ -f .env.web ]] || {
@@ -38,9 +38,11 @@ if [[ -d results && ! -w results ]]; then
 fi
 
 set -a
+source .env.openagentic
 source .env.web
 set +a
 export WEB_COOKIE_SECURE=false
+export TRADINGAGENTS_RESULTS_DIR="$repo/results"
 
 : "${WEB_USERNAME:?WEB_USERNAME is required in .env.web}"
 : "${WEB_PASSWORD:?WEB_PASSWORD is required in .env.web}"
@@ -56,13 +58,22 @@ frontend_pid=""
 cleanup() {
   trap - EXIT INT TERM
   [[ -z "$frontend_pid" ]] || kill -- "-$frontend_pid" 2>/dev/null || true
-  [[ -z "$backend_pid" ]] || kill -- "-$backend_pid" 2>/dev/null || true
   [[ -z "$frontend_pid" ]] || wait "$frontend_pid" 2>/dev/null || true
+  if [[ -n "$backend_pid" ]] && kill -0 "$backend_pid" 2>/dev/null; then
+    # Let Uvicorn run FastAPI's shutdown hook first; it terminates analysis
+    # children and its multiprocessing resource tracker without leak warnings.
+    kill -TERM "$backend_pid" 2>/dev/null || true
+    for _ in {1..50}; do
+      kill -0 "$backend_pid" 2>/dev/null || break
+      sleep 0.1
+    done
+    kill -- "-$backend_pid" 2>/dev/null || true
+  fi
   [[ -z "$backend_pid" ]] || wait "$backend_pid" 2>/dev/null || true
 }
 trap cleanup EXIT INT TERM
 
-setsid uv run tradingagents-web &
+setsid "$repo/.venv/bin/tradingagents-web" &
 backend_pid=$!
 
 for _ in {1..30}; do

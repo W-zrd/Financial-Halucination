@@ -1,18 +1,23 @@
 from __future__ import annotations
 
 import json
+import threading
+import time
 from pathlib import Path
 
+import pytest
 from fastapi.testclient import TestClient
 
 from tradingagents.web.app import create_app
-from tradingagents.web.runs import AnalysisRequest, execute_analysis, scan_runs
+from tradingagents.web.runs import AnalysisRequest, RunManager, execute_analysis, scan_runs
 
 
 def _client(tmp_path: Path, monkeypatch, executor=None) -> TestClient:
     monkeypatch.setenv("WEB_USERNAME", "analyst")
     monkeypatch.setenv("WEB_PASSWORD", "correct horse battery staple")
     monkeypatch.setenv("WEB_SESSION_SECRET", "s" * 32)
+    monkeypatch.setenv("WEB_ENV", "test")
+    monkeypatch.setenv("WEB_COOKIE_SECURE", "false")
     monkeypatch.setenv("TRADINGAGENTS_RESULTS_DIR", str(tmp_path / "results"))
     return TestClient(create_app(results_dir=tmp_path / "results", executor=executor))
 
@@ -60,20 +65,17 @@ def test_history_scans_legacy_reports_and_never_invents_metadata(tmp_path, monke
         assert client.get(f"/api/runs/{run_id}/raw/../../.env").status_code in (404, 422)
 
 
-def test_queue_is_single_worker_and_sse_reports_done(tmp_path, monkeypatch):
-    active = 0
-    peak = 0
+def test_two_runs_execute_concurrently_and_sse_reports_done(tmp_path, monkeypatch):
+    gate = tmp_path / "release"
 
     def fake_executor(request, results_dir, emit):
-        nonlocal active, peak
-        active += 1
-        peak = max(peak, active)
-        emit("analysis", "Generating report")
+        (tmp_path / f"started-{request.ticker}").write_text("started", encoding="utf-8")
+        emit("analysis", f"{request.ticker} generating report")
+        while not gate.exists():
+            time.sleep(0.01)
         target = results_dir / request.ticker / request.analysis_date / "reports"
         target.mkdir(parents=True, exist_ok=True)
         (target / "final_trade_decision.md").write_text("Rating: Hold", encoding="utf-8")
-        (target.parent / "metadata.json").write_text(json.dumps({"depth": request.depth}), encoding="utf-8")
-        active -= 1
         return target.parent
 
     with _client(tmp_path, monkeypatch, fake_executor) as client:
@@ -82,34 +84,155 @@ def test_queue_is_single_worker_and_sse_reports_done(tmp_path, monkeypatch):
         first = client.post("/api/runs", headers=headers, json={"ticker": "AMD", "analysis_date": "2026-09-24", "depth": 1})
         second = client.post("/api/runs", headers=headers, json={"ticker": "MU", "analysis_date": "2026-09-24", "depth": 3})
         assert first.status_code == second.status_code == 202
+        deadline = time.monotonic() + 2
+        while time.monotonic() < deadline and not all((tmp_path / f"started-{ticker}").exists() for ticker in ("AMD", "MU")):
+            time.sleep(0.01)
+        both_started = all((tmp_path / f"started-{ticker}").exists() for ticker in ("AMD", "MU"))
+        gate.touch()
+        assert both_started
         run_id = second.json()["id"]
         with client.stream("GET", f"/api/runs/{run_id}/events") as response:
             body = "".join(response.iter_text())
         assert '"status":"done"' in body
-        assert peak == 1
+
+
+def test_running_analysis_can_be_force_stopped(tmp_path, monkeypatch):
+    def blocking_executor(request, results_dir, emit):
+        emit("analysis", "Waiting forever")
+        while True:
+            time.sleep(0.05)
+
+    with _client(tmp_path, monkeypatch, blocking_executor) as client:
+        csrf = _login(client)
+        headers = {"X-CSRF-Token": csrf}
+        response = client.post(
+            "/api/runs",
+            headers=headers,
+            json={"ticker": "AMD", "analysis_date": "2026-09-24", "depth": 1},
+        )
+        job_id = response.json()["id"]
+        deadline = time.monotonic() + 2
+        while time.monotonic() < deadline and client.get(f"/api/jobs/{job_id}").json()["status"] != "running":
+            time.sleep(0.01)
+
+        assert client.post(f"/api/jobs/{job_id}/cancel").status_code == 403
+        stopped = client.post(f"/api/jobs/{job_id}/cancel", headers=headers)
+        assert stopped.status_code == 202
+        assert stopped.json()["status"] == "cancelled"
+        with client.stream("GET", f"/api/runs/{job_id}/events") as events:
+            body = "".join(events.iter_text())
+        assert '"status":"cancelled"' in body
+
+
+def test_queued_analysis_can_be_cancelled(tmp_path, monkeypatch):
+    gate = tmp_path / "release"
+
+    def blocking_executor(request, results_dir, emit):
+        while not gate.exists():
+            time.sleep(0.01)
+        target = results_dir / request.ticker / request.analysis_date / "reports"
+        target.mkdir(parents=True, exist_ok=True)
+        (target / "final_trade_decision.md").write_text("Rating: Hold", encoding="utf-8")
+        return target.parent
+
+    monkeypatch.setenv("TRADINGAGENTS_WEB_MAX_CONCURRENT", "1")
+    with _client(tmp_path, monkeypatch, blocking_executor) as client:
+        csrf = _login(client)
+        headers = {"X-CSRF-Token": csrf}
+        client.post("/api/runs", headers=headers, json={"ticker": "AMD", "analysis_date": "2026-09-24", "depth": 1})
+        queued = client.post("/api/runs", headers=headers, json={"ticker": "MU", "analysis_date": "2026-09-24", "depth": 1}).json()
+        stopped = client.post(f"/api/jobs/{queued['id']}/cancel", headers=headers)
+        assert stopped.status_code == 202
+        assert stopped.json()["status"] == "cancelled"
+        gate.touch()
+
+
+def test_duplicate_inflight_target_is_rejected(tmp_path, monkeypatch):
+    gate = tmp_path / "release"
+
+    def blocking_executor(request, results_dir, emit):
+        while not gate.exists():
+            time.sleep(0.01)
+        target = results_dir / request.ticker / request.analysis_date / "reports"
+        target.mkdir(parents=True, exist_ok=True)
+        (target / "final_trade_decision.md").write_text("Rating: Hold", encoding="utf-8")
+
+    with _client(tmp_path, monkeypatch, blocking_executor) as client:
+        csrf = _login(client)
+        headers = {"X-CSRF-Token": csrf}
+        payload = {"ticker": "AMD", "analysis_date": "2026-09-24", "depth": 1}
+        assert client.post("/api/runs", headers=headers, json=payload).status_code == 202
+        duplicate = client.post("/api/runs", headers=headers, json=payload)
+        gate.touch()
+
+        assert duplicate.status_code == 409
+
+
+def test_jobs_list_rediscovers_active_analysis(tmp_path, monkeypatch):
+    gate = tmp_path / "release"
+
+    def blocking_executor(request, results_dir, emit):
+        while not gate.exists():
+            time.sleep(0.01)
+        target = results_dir / request.ticker / request.analysis_date / "reports"
+        target.mkdir(parents=True, exist_ok=True)
+        (target / "final_trade_decision.md").write_text("Rating: Hold", encoding="utf-8")
+
+    with _client(tmp_path, monkeypatch, blocking_executor) as client:
+        csrf = _login(client)
+        created = client.post(
+            "/api/runs",
+            headers={"X-CSRF-Token": csrf},
+            json={"ticker": "AMD", "analysis_date": "2026-09-24", "depth": 1},
+        ).json()
+
+        jobs = client.get("/api/jobs")
+        gate.touch()
+
+        assert jobs.status_code == 200
+        assert any(job["id"] == created["id"] for job in jobs.json())
 
 
 def test_analysis_config_is_env_fixed_english_and_depth_controls_both_rounds(tmp_path, monkeypatch):
     monkeypatch.setenv("TRADINGAGENTS_LLM_PROVIDER", "openai")
     monkeypatch.setenv("TRADINGAGENTS_QUICK_THINK_LLM", "quick-fixed")
     monkeypatch.setenv("TRADINGAGENTS_DEEP_THINK_LLM", "deep-fixed")
+    monkeypatch.setenv("TRADINGAGENTS_LLM_MAX_RETRIES", "15")
+    monkeypatch.setenv("TRADINGAGENTS_CHECKPOINT_ENABLED", "true")
     captured = {}
 
     class FakeGraph:
         def __init__(self, analysts, config, debug):
             captured.update(config=config, analysts=analysts, debug=debug)
-        def propagate(self, ticker, analysis_date, asset_type="stock"):
+        def propagate(self, ticker, analysis_date, asset_type="stock", on_chunk=None):
             captured["asset_type"] = asset_type
+            assert on_chunk is not None
+            on_chunk({"messages": [type("Message", (), {"content": "Bull and bear agents are discussing AMD", "id": "message-1"})()]})
+            debate = {"investment_debate_state": {"current_response": "Valuation supports upside"}}
+            on_chunk(debate)
+            on_chunk(debate)
+            on_chunk({"risk_debate_state": {
+                "current_aggressive_response": "Take the opportunity",
+                "judge_decision": "Keep position sizing disciplined",
+            }})
             return {"final_trade_decision": "Rating: Overweight"}, "Overweight"
 
     request = AnalysisRequest(ticker="AMD", analysis_date="2026-09-24", depth=5)
-    execute_analysis(request, tmp_path, lambda *_: None, graph_factory=FakeGraph)
+    emitted = []
+    execute_analysis(request, tmp_path, lambda kind, message: emitted.append((kind, message)), graph_factory=FakeGraph)
     assert captured["analysts"] == ["market", "social", "news", "fundamentals"]
     assert captured["asset_type"] == "stock"
     assert captured["config"]["max_debate_rounds"] == 5
     assert captured["config"]["max_risk_discuss_rounds"] == 5
     assert captured["config"]["output_language"] == "English"
+    assert captured["config"]["results_dir"] == str(tmp_path)
     assert captured["config"]["quick_think_llm"] == "quick-fixed"
+    assert captured["config"]["llm_max_retries"] == 15
+    assert captured["config"]["checkpoint_enabled"] is True
+    assert ("agent", "Bull and bear agents are discussing AMD") in emitted
+    assert emitted.count(("agent", "Research debate: Valuation supports upside")) == 1
+    assert ("agent", "Aggressive risk analyst: Take the opportunity") in emitted
+    assert ("agent", "Portfolio manager: Keep position sizing disciplined") in emitted
 
 
 def test_crypto_run_omits_fundamentals_and_propagates_asset_type(tmp_path):
@@ -119,7 +242,7 @@ def test_crypto_run_omits_fundamentals_and_propagates_asset_type(tmp_path):
         def __init__(self, analysts, config, debug):
             captured["analysts"] = analysts
 
-        def propagate(self, ticker, analysis_date, asset_type="stock"):
+        def propagate(self, ticker, analysis_date, asset_type="stock", on_chunk=None):
             captured["asset_type"] = asset_type
             return {"final_trade_decision": "Rating: Hold"}, "Hold"
 
@@ -128,6 +251,363 @@ def test_crypto_run_omits_fundamentals_and_propagates_asset_type(tmp_path):
 
     assert captured["analysts"] == ["market", "social", "news"]
     assert captured["asset_type"] == "crypto"
+
+
+def _request(ticker="AMD"):
+    return AnalysisRequest(ticker=ticker, analysis_date="2026-09-24", depth=1)
+
+
+def _write_result(request, results_dir, emit):
+    target = results_dir / request.ticker / request.analysis_date / "reports"
+    target.mkdir(parents=True, exist_ok=True)
+    (target / "final_trade_decision.md").write_text("Rating: Hold")
+
+
+@pytest.mark.parametrize("boundary", ["construct", "start"])
+def test_startup_failure_does_not_kill_scheduler(tmp_path, monkeypatch, boundary):
+    manager = RunManager(tmp_path, executor=_write_result)
+    real_process = manager._context.Process
+    calls = 0
+
+    def process_factory(*args, **kwargs):
+        nonlocal calls
+        calls += 1
+        if calls == 1:
+            if boundary == "construct":
+                raise OSError("spawn unavailable")
+            process = real_process(*args, **kwargs)
+            monkeypatch.setattr(process, "start", lambda: (_ for _ in ()).throw(OSError("spawn unavailable")))
+            return process
+        return real_process(*args, **kwargs)
+
+    monkeypatch.setattr(manager._context, "Process", process_factory)
+    first = manager.submit(_request())
+    second = manager.submit(_request("MU"))
+    manager.start()
+    try:
+        assert first.finished.wait(5)
+        assert first.status == "failed"
+        assert "spawn unavailable" in first.error
+        assert second.finished.wait(5)
+        assert second.status == "done"
+        assert manager._thread.is_alive()
+        assert not manager._processes
+    finally:
+        manager.stop()
+
+
+@pytest.mark.parametrize("boundary", ["construct", "start"])
+def test_cancel_is_atomic_with_launch_and_reaps_process(tmp_path, monkeypatch, boundary):
+    entered = threading.Event()
+    release = threading.Event()
+    cancel_attempted = threading.Event()
+    processes = []
+
+    def blocking_executor(*args):
+        while True:
+            time.sleep(0.01)
+
+    manager = RunManager(tmp_path, executor=blocking_executor)
+    real_process = manager._context.Process
+
+    def factory(*args, **kwargs):
+        if boundary == "construct":
+            entered.set()
+            assert release.wait(5)
+        process = real_process(*args, **kwargs)
+        processes.append(process)
+        real_start = process.start
+
+        def start():
+            if boundary == "start":
+                entered.set()
+                assert release.wait(5)
+            real_start()
+
+        monkeypatch.setattr(process, "start", start)
+        return process
+
+    monkeypatch.setattr(manager._context, "Process", factory)
+    job = manager.submit(_request())
+    manager.start()
+
+    def cancel():
+        cancel_attempted.set()
+        manager.cancel(job.id)
+
+    canceller = threading.Thread(target=cancel)
+    try:
+        assert entered.wait(5)
+        canceller.start()
+        assert cancel_attempted.wait(5)
+        # Cancellation must wait for the atomic launch transition, not finish
+        # before a process which it cannot see is started.
+        cancelled_during_launch = job.finished.wait(0.1)
+        release.set()
+        canceller.join(5)
+        assert not cancelled_during_launch
+        assert job.finished.wait(5)
+        assert job.status == "cancelled"
+        assert not manager._processes
+        assert all(process._closed for process in processes)
+    finally:
+        release.set()
+        manager.stop()
+        canceller.join(5)
+        for process in processes:
+            if not process._closed:
+                if process.is_alive():
+                    process.kill()
+                process.join()
+                process.close()
+
+
+def _spawn_noisy_executor(request, results_dir, emit):
+    root = results_dir.parents[1]
+    if request.ticker == "AMD":
+        (root / "noisy-started").touch()
+        while True:
+            emit("agent", "discussion " * 100000)
+    while not (root / "release-sibling").exists():
+        time.sleep(0.01)
+    emit("agent", "Sibling discussion")
+    _write_result(request, results_dir, emit)
+
+
+def test_spawn_noisy_writer_cancellation_preserves_sibling_and_releases_resources(tmp_path):
+    import multiprocessing
+
+    semaphores_before = set(Path("/dev/shm").glob("sem.*"))
+    children_before = {child.pid for child in multiprocessing.active_children()}
+    # Select the real production context, replacing only paid analysis with a
+    # module-level, spawn-picklable executor (not the fork closure test seam).
+    manager = RunManager(tmp_path)
+    assert manager._context.get_start_method() == "spawn"
+    manager.executor = _spawn_noisy_executor
+    first = manager.submit(_request())
+    second = manager.submit(_request("MU"))
+    manager.start()
+    handles = []
+    channels = []
+    try:
+        _wait_for((tmp_path / "noisy-started").exists, timeout=10)
+        _wait_for(lambda: any(event["type"] == "agent" for event in first.events), timeout=10)
+        with manager._lock:
+            handles = list(manager._processes.values())
+            channels = list(manager._channels.values())
+        assert len(handles) == 2
+        manager.cancel(first.id)
+        (tmp_path / "release-sibling").touch()
+        assert second.finished.wait(10)
+        assert first.status == "cancelled"
+        assert second.status == "done"
+        assert any(event.get("message") == "Sibling discussion" for event in second.events)
+        assert not manager._processes
+        assert not manager._channels
+        assert not manager._buffers
+    finally:
+        manager.stop()
+    assert all(handle._closed for handle in handles)
+    assert all(channel.fileno() == -1 for channel in channels)
+    assert not manager._thread.is_alive()
+    assert {child.pid for child in multiprocessing.active_children()} == children_before
+    assert set(Path("/dev/shm").glob("sem.*")) == semaphores_before
+
+
+def test_publication_failure_is_terminal_and_does_not_stop_scheduler(tmp_path, monkeypatch):
+    original_rename = Path.rename
+    attempts = 0
+
+    def rename(source, target):
+        nonlocal attempts
+        if source.name == "published":
+            attempts += 1
+            if attempts == 1:
+                raise OSError("publication unavailable")
+        return original_rename(source, target)
+
+    monkeypatch.setattr(Path, "rename", rename)
+    manager = RunManager(tmp_path, executor=_write_result)
+    first = manager.submit(_request())
+    second = manager.submit(_request("MU"))
+    manager.start()
+    try:
+        assert first.finished.wait(5)
+        assert first.status == "failed"
+        assert "publication unavailable" in (first.error or "")
+        assert second.finished.wait(5)
+        assert second.status == "done"
+        assert manager._thread.is_alive()
+        assert not any((tmp_path / ".web-staging").glob("*"))
+    finally:
+        manager.stop()
+
+
+def test_partial_child_message_cannot_block_other_jobs_or_cancellation(tmp_path, monkeypatch):
+    import tradingagents.web.runs as runs_module
+
+    real_child = runs_module._execute_in_child
+    started = tmp_path / "partial-written"
+
+    def child(job_id, request, results_dir, executor, messages):
+        if request.ticker == "AMD":
+            # A writer can die between any two bytes. A readable transport does
+            # not imply that a full framed message is available.
+            messages.sendall(b'["event", "agent", "unfinished')
+            started.touch()
+            while True:
+                time.sleep(0.01)
+        real_child(job_id, request, results_dir, executor, messages)
+
+    monkeypatch.setattr(runs_module, "_execute_in_child", child)
+    manager = RunManager(tmp_path, executor=_write_result)
+    first = manager.submit(_request())
+    second = manager.submit(_request("MU"))
+    manager.start()
+    try:
+        _wait_for(started.exists)
+        assert second.finished.wait(5)
+        assert second.status == "done"
+        canceller = threading.Thread(target=manager.cancel, args=(first.id,), daemon=True)
+        canceller.start()
+        canceller.join(5)
+        assert not canceller.is_alive()
+        assert first.status == "cancelled"
+        third = manager.submit(_request("INTC"))
+        assert third.finished.wait(5)
+        assert third.status == "done"
+        assert not manager._processes
+        assert not manager._channels
+    finally:
+        manager.stop()
+
+
+def test_done_is_not_public_until_report_snapshot_is_published(tmp_path):
+    entered = threading.Event()
+    release = threading.Event()
+
+    manager = RunManager(tmp_path, executor=_write_result)
+    original_persist = manager._persist
+
+    def blocking_persist(job, rating="Not available", **kwargs):
+        entered.set()
+        assert release.wait(2)
+        original_persist(job, rating, **kwargs)
+
+    manager._persist = blocking_persist
+    job = manager.submit(_request())
+    manager.start()
+    try:
+        assert entered.wait(2)
+        assert job.public()["status"] == "running"
+        release.set()
+        assert job.finished.wait(2)
+        assert job.status == "done"
+    finally:
+        release.set()
+        manager.stop()
+
+
+def test_cancelled_is_not_public_until_report_snapshot_is_published(tmp_path):
+    entered = threading.Event()
+    release = threading.Event()
+    started = tmp_path / "started"
+
+    def executor(request, results_dir, emit):
+        started.touch()
+        while True:
+            time.sleep(0.01)
+
+    manager = RunManager(tmp_path, executor=executor)
+    original_persist = manager._persist
+
+    def blocking_persist(job, rating="Not available", **kwargs):
+        entered.set()
+        assert release.wait(2)
+        original_persist(job, rating, **kwargs)
+
+    manager._persist = blocking_persist
+    job = manager.submit(_request())
+    manager.start()
+    try:
+        _wait_for(started.exists)
+        canceller = threading.Thread(target=manager.cancel, args=(job.id,), daemon=True)
+        canceller.start()
+        assert entered.wait(2)
+        assert job.public()["status"] not in {"done", "failed", "cancelled"}
+        release.set()
+        canceller.join(2)
+        assert not canceller.is_alive()
+        assert job.status == "cancelled"
+    finally:
+        release.set()
+        manager.stop()
+
+
+@pytest.mark.parametrize("outcome", ["failed", "cancelled", "done"])
+def test_rerun_preserves_published_report_and_has_no_stale_sections(tmp_path, outcome):
+    old = tmp_path / "AMD" / "2026-09-24"
+    (old / "reports").mkdir(parents=True)
+    (old / "reports" / "final_trade_decision.md").write_text("Rating: Buy")
+    (old / "reports" / "news_report.md").write_text("Old news")
+    metadata = json.dumps({"id": "original", "status": "done", "depth": 3})
+    (old / "metadata.json").write_text(metadata)
+    started = tmp_path / "started"
+
+    def executor(request, results_dir, emit):
+        _write_result(request, results_dir, emit)
+        started.touch()
+        if outcome == "failed":
+            raise RuntimeError("rerun failed")
+        if outcome == "cancelled":
+            while True:
+                time.sleep(0.01)
+
+    manager = RunManager(tmp_path, executor=executor)
+    job = manager.submit(_request())
+    manager.start()
+    try:
+        if outcome == "cancelled":
+            _wait_for(started.exists)
+            manager.cancel(job.id)
+        assert job.finished.wait(5)
+        assert job.status == outcome
+        assert (old / "metadata.json").read_text() == metadata
+        assert (old / "reports" / "final_trade_decision.md").read_text() == "Rating: Buy"
+        runs = {run["id"]: run for run in scan_runs(tmp_path)}
+        assert runs["original"]["status"] == "done"
+        current = Path(runs[job.id]["report_dir"])
+        assert not (current / "news_report.md").exists()
+        assert (current / "final_trade_decision.md").exists() == (outcome == "done")
+        assert not any((tmp_path / ".web-staging").glob("*"))
+    finally:
+        manager.stop()
+
+
+def _wait_for(predicate, timeout=5):
+    deadline = time.monotonic() + timeout
+    while not predicate() and time.monotonic() < deadline:
+        time.sleep(0.01)
+    assert predicate()
+
+
+def test_sse_reconnect_resumes_after_last_event_id_without_duplicate_activity(tmp_path, monkeypatch):
+    with _client(tmp_path, monkeypatch, _write_result) as client:
+        csrf = _login(client)
+        response = client.post("/api/runs", headers={"X-CSRF-Token": csrf}, json=_request().model_dump())
+        job_id = response.json()["id"]
+        assert client.app.state.manager.jobs[job_id].finished.wait(5)
+        url = f"/api/runs/{job_id}/events"
+        original = client.get(url).text
+        frames = [frame for frame in original.split("\n\n") if frame]
+        ids = [int(frame.splitlines()[0].removeprefix("id: ")) for frame in frames]
+        assert ids == list(range(len(frames)))
+        resumed = client.get(url, headers={"Last-Event-ID": "1"})
+        assert resumed.status_code == 200
+        assert resumed.text == "\n\n".join(frames[2:]) + "\n\n"
+        assert client.get(url, headers={"Last-Event-ID": str(ids[-1])}).text == ""
+        for invalid in ("-1", "garbage", "1.2", str(len(ids)), "9" * 100):
+            assert client.get(url, headers={"Last-Event-ID": invalid}).status_code == 400
 
 
 def test_failed_run_is_persisted_in_history(tmp_path, monkeypatch):

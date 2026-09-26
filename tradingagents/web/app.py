@@ -17,7 +17,14 @@ from fastapi.responses import FileResponse, HTMLResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
-from .runs import AnalysisRequest, RunManager, read_run, report_file, scan_runs
+from .runs import (
+    AnalysisRequest,
+    DuplicateRunError,
+    RunManager,
+    read_run,
+    report_file,
+    scan_runs,
+)
 
 COOKIE = "ta_session"
 SESSION_TTL = 12 * 60 * 60
@@ -140,11 +147,25 @@ def create_app(results_dir: Path | None = None, executor=None, frontend_dist: Pa
 
     @app.post("/api/runs", status_code=202)
     def start_run(payload: AnalysisRequest, _=Depends(csrf)):
-        return manager.submit(payload).public()
+        try:
+            return manager.submit(payload).public()
+        except DuplicateRunError as exc:
+            raise HTTPException(409, str(exc)) from exc
+
+    @app.get("/api/jobs")
+    def get_jobs(_=Depends(session)):
+        return manager.list_jobs()
 
     @app.get("/api/jobs/{job_id}")
     def get_job(job_id: str, _=Depends(session)):
         job = manager.jobs.get(job_id)
+        if not job:
+            raise HTTPException(404, "Run not found")
+        return job.public()
+
+    @app.post("/api/jobs/{job_id}/cancel", status_code=202)
+    def cancel_job(job_id: str, _=Depends(csrf)):
+        job = manager.cancel(job_id)
         if not job:
             raise HTTPException(404, "Run not found")
         return job.public()
@@ -177,17 +198,25 @@ def create_app(results_dir: Path | None = None, executor=None, frontend_dist: Pa
         return StreamingResponse(ready(), media_type="text/event-stream")
 
     @app.get("/api/runs/{job_id}/events")
-    async def events(job_id: str, _=Depends(session)):
+    async def events(job_id: str, request: Request, _=Depends(session)):
         job = manager.jobs.get(job_id)
         if not job:
             raise HTTPException(404, "Run not found")
+        last_id = request.headers.get("Last-Event-ID")
+        start_index = 0
+        if last_id is not None:
+            if not last_id.isascii() or not last_id.isdecimal() or len(last_id) > 20:
+                raise HTTPException(400, "Invalid Last-Event-ID")
+            start_index = int(last_id) + 1
+            if start_index > len(job.events):
+                raise HTTPException(400, "Invalid Last-Event-ID")
 
         async def stream():
-            index = 0
+            index = start_index
             last_heartbeat = 0.0
             while True:
                 while index < len(job.events):
-                    yield f"data: {json.dumps(job.events[index], separators=(',', ':'))}\n\n"
+                    yield f"id: {index}\ndata: {json.dumps(job.events[index], separators=(',', ':'))}\n\n"
                     index += 1
                 now = time.monotonic()
                 if not job.finished.is_set() and now - last_heartbeat >= 1:
