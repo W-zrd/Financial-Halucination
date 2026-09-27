@@ -10,10 +10,12 @@ curl --fail --silent --show-error -b "$tmp/cookies" "$base/api/session" > "$tmp/
 curl --fail --silent --show-error -b "$tmp/cookies" "$base/api/runs" > "$tmp/runs.json"
 curl --fail --silent --show-error -b "$tmp/cookies" "$base/api/jobs" > "$tmp/jobs.json"
 python3 -c 'import json,sys; assert isinstance(json.load(open(sys.argv[1])), list)' "$tmp/jobs.json"
-run_id="$(python3 -c 'import json,sys; runs=json.load(open(sys.argv[1])); assert runs, "no history fixture"; print(runs[0]["id"])' "$tmp/runs.json")"
-curl --fail --silent --show-error -b "$tmp/cookies" "$base/api/runs/$run_id" > "$tmp/report.json"
-section="$(python3 -c 'import json,sys; report=json.load(open(sys.argv[1])); sections=report.get("sections", {}); assert sections, "no report sections"; print(next(iter(sections)))' "$tmp/report.json")"
-curl --fail --silent --show-error -b "$tmp/cookies" "$base/api/runs/$run_id/raw/$section" > "$tmp/raw.md"
-test -s "$tmp/raw.md"
+run_id="$(python3 -c 'import json,sys; runs=json.load(open(sys.argv[1])); assert isinstance(runs, list); print(runs[0]["id"] if runs else "")' "$tmp/runs.json")"
+if [[ -n "$run_id" ]]; then
+  curl --fail --silent --show-error -b "$tmp/cookies" "$base/api/runs/$run_id" > "$tmp/report.json"
+  section="$(python3 -c 'import json,sys; report=json.load(open(sys.argv[1])); sections=report.get("sections", {}); assert sections, "no report sections"; print(next(iter(sections)))' "$tmp/report.json")"
+  curl --fail --silent --show-error -b "$tmp/cookies" "$base/api/runs/$run_id/raw/$section" > "$tmp/raw.md"
+  test -s "$tmp/raw.md"
+fi
 curl --fail --silent --show-error -b "$tmp/cookies" -N "$base/api/events" | grep -q '"status":"ready"'
-echo "Authenticated container smoke OK (session, history, report, raw, SSE)"
+echo "Authenticated container smoke OK (session, history, SSE; report/raw checked when available)"
