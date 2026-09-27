@@ -131,6 +131,25 @@ def test_sentiment_prompt_states_constraint(monkeypatch):
 
 
 @pytest.mark.unit
+def test_market_analyst_requests_evidence_backed_scenario_headings(monkeypatch):
+    import tradingagents.agents.analysts.market_analyst as market
+
+    captured = {}
+    prompt = MagicMock()
+    prompt.partial.side_effect = lambda **values: captured.update(values) or prompt
+    prompt.__or__.return_value.invoke.return_value = MagicMock(tool_calls=[], content="")
+    monkeypatch.setattr(market.ChatPromptTemplate, "from_messages", lambda _: prompt)
+    market.create_market_analyst(MagicMock())({
+        "trade_date": "2026-09-25", "company_of_interest": "NVDA", "messages": [],
+    })
+    instructions = captured["system_message"]
+    assert "### Bullish Scenario" in instructions
+    assert "### Bearish / Invalidation Scenario" in instructions
+    assert "only when supported by verified data" in instructions
+    assert "Do not invent" in instructions
+
+
+@pytest.mark.unit
 def test_tool_using_analysts_keep_their_date_guidance():
     # The analysts that really do call tools keep the wording that anchors their
     # tool date ranges (#836) — this fix is scoped to no-tool agents.

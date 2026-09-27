@@ -86,6 +86,36 @@ test('bounds a long ticker history, pages all dates and opens a dedicated reader
   expect(screen.getByText('17–19 of 19')).toBeInTheDocument()
 })
 
+test('switches ticker from a long report without scrolling back to the library header', async () => {
+  const reports = ['AMD', 'MU'].map(ticker => ({ id: ticker.toLowerCase(), ticker, analysis_date: '2026-09-25', depth: 3, status: 'done', rating: 'Hold', created_at: '2026-09-25' }))
+  const scrolled: Element[] = []
+  const original = Element.prototype.scrollIntoView
+  Element.prototype.scrollIntoView = function () { scrolled.push(this) }
+  vi.mocked(fetch).mockImplementation((input: RequestInfo | URL) => {
+    const url = String(input)
+    if (url.endsWith('/api/session')) return ok({ username: 'analyst', csrf_token: 'csrf' })
+    if (url.endsWith('/api/runs')) return ok(reports)
+    if (url.endsWith('/api/runs/amd')) return ok({ ...reports[0], sections: { market_report: 'Long report' } })
+    return ok({})
+  })
+  try {
+    render(<App />)
+    await userEvent.click(await screen.findByRole('button', { name: /saved reports/i }))
+    await userEvent.click(screen.getByRole('button', { name: /show AMD report dates/i }))
+    await userEvent.click(screen.getByRole('button', { name: 'Open AMD 2026-09-25 report' }))
+    expect(await screen.findByText('Long report')).toBeInTheDocument()
+    await userEvent.selectOptions(screen.getByRole('combobox', { name: 'Switch ticker' }), 'MU')
+    expect(screen.getByRole('region', { name: 'Analysis run history' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /show MU report dates/i })).toHaveAttribute('aria-pressed', 'true')
+    expect(screen.getByRole('button', { name: 'Open MU 2026-09-25 report' })).toBeInTheDocument()
+    expect(scrolled.some(element => element.getAttribute('aria-label') === 'Tracked tickers')).toBe(true)
+    expect(scrolled.some(element => element.getAttribute('aria-label') === 'Show MU report dates')).toBe(true)
+    expect(screen.getByRole('button', { name: /show MU report dates/i })).toHaveFocus()
+  } finally {
+    Element.prototype.scrollIntoView = original
+  }
+})
+
 test('uses keyboard-only ticker, whole-field date picker and offered Gemini as the initial model', async () => {
   const picker = vi.fn()
   const original = HTMLInputElement.prototype.showPicker
@@ -134,6 +164,16 @@ test('charts explicit market scenarios and numeric sentiment above report text w
   await userEvent.click(screen.getByRole('button', { name: /raw/i }))
   expect(screen.queryByRole('region', { name: 'Report visualizations' })).not.toBeInTheDocument()
   expect(screen.getByText(/### Bullish Scenario \(Primary Bias\)/)).toBeInTheDocument()
+})
+
+test('charts the saved report overall_band and overall_score fields without inferring unrelated numbers', async () => {
+  await openVisualReport({ sentiment_report: '# AVGO Sentiment Report\n- **overall_band:** Mildly Bullish\n- **overall_score:** 6.0 / 10\n- **confidence:** medium\n\n9 Bullish (36%) posts' })
+  const chart = screen.getByRole('region', { name: 'Report visualizations' })
+  expect(chart).toHaveTextContent('Mildly Bullish')
+  expect(screen.queryByRole('combobox', { name: 'Switch ticker' })).not.toBeInTheDocument()
+  expect(chart.querySelector('[role="meter"]')).toHaveAttribute('aria-valuenow', '6')
+  expect(chart.querySelector('[role="meter"]')).toHaveAttribute('aria-valuemax', '10')
+  expect(chart.querySelector('[role="meter"] .sentiment-fill')).toHaveAttribute('style', 'width: 60%;')
 })
 
 test('charts a directly labelled bearish prediction without requiring paired scenarios', async () => {

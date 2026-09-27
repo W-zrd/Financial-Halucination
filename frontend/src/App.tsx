@@ -131,6 +131,7 @@ export default function App() {
   const [focusedJobId, setFocusedJobId] = useState('')
   const [expandedTicker, setExpandedTicker] = useState('')
   const [historyPage, setHistoryPage] = useState(0)
+  const returnToTickers = useRef(false)
   const [removing, setRemoving] = useState<string[]>([])
   const removalPending = useRef(new Set<string>())
   const removedRuns = useRef(new Set<string>())
@@ -165,8 +166,16 @@ export default function App() {
   const maxRatingCount = Math.max(1, ...ratingCounts.map(([, count]) => count))
 
   useEffect(() => {
-    if (view === 'reports' && selected) document.getElementById('saved-report-reader')?.scrollIntoView?.({ block: 'start' })
-  }, [selected])
+    if (view !== 'reports') return
+    if (selected) document.getElementById('saved-report-reader')?.scrollIntoView?.({ block: 'start' })
+    else if (returnToTickers.current) {
+      returnToTickers.current = false
+      document.querySelector('.history-tickers')?.scrollIntoView?.({ block: 'start' })
+      const activeTicker = document.querySelector<HTMLButtonElement>('.ticker-toggle[aria-pressed="true"]')
+      activeTicker?.scrollIntoView?.({ block: 'nearest', inline: 'nearest' })
+      activeTicker?.focus({ preventScroll: true })
+    }
+  }, [view, selected, expandedTicker])
 
   async function loadOverview() {
     const request = ++overviewRequest.current
@@ -188,6 +197,7 @@ export default function App() {
   }
 
   function showReportLibrary() {
+    returnToTickers.current = !!selected
     openRunRequest.current++
     setSelected(null)
     setView('reports')
@@ -534,7 +544,7 @@ export default function App() {
               </> : <p className="empty">No completed runs.</p>}
             </section>
           </> : <div className="report-reader" id="saved-report-reader">
-            <div className="report-toolbar"><button className="report-back" onClick={showReportLibrary}>← Back to saved reports</button><span>{selected.ticker} · {selected.analysis_date || 'Date not available'}</span><button className="ghost" onClick={() => setRaw(!raw)}>{raw ? 'Rendered view' : 'Raw view'}</button></div>
+            <div className="report-toolbar"><button className="report-back" aria-label="Back to saved reports" onClick={showReportLibrary}>← Reports</button>{groupedRuns.some(([name]) => name !== selected.ticker) && <select aria-label="Switch ticker" value={selected.ticker} onChange={event => { setExpandedTicker(event.target.value); setHistoryPage(0); showReportLibrary() }}>{!groupedRuns.some(([name]) => name === selected.ticker) && <option value={selected.ticker}>{selected.ticker}</option>}{groupedRuns.map(([name]) => <option key={name} value={name}>{name}</option>)}</select>}<span>{selected.ticker} · {selected.analysis_date || 'Date not available'}</span><button className="ghost" onClick={() => setRaw(!raw)}>{raw ? 'Rendered view' : 'Raw view'}</button></div>
             <Report run={selected} raw={raw} />
           </div>}
         </section>}
@@ -591,12 +601,19 @@ function marketScenarios(text?: string) {
 }
 
 function overallSentiment(text?: string) {
-  const line = (text || '').split('\n').find(value => /^\s*(?:#{1,4}\s+)?(?:\*\*)?Overall Sentiment:(?:\*\*)?\s*/i.test(value))
+  const lines = (text || '').split('\n')
+  const line = lines.find(value => /^\s*(?:#{1,4}\s+)?(?:\*\*)?Overall Sentiment:(?:\*\*)?\s*/i.test(value))
   const match = line?.match(/^\s*(?:#{1,4}\s+)?(?:\*\*)?Overall Sentiment:(?:\*\*)?\s*(?:\*\*)?([A-Za-z][A-Za-z -]{0,40}?)(?:\*\*)?\s*\(Score:\s*(\d+(?:\.\d+)?)\s*\/\s*(\d+(?:\.\d+)?)\)\s*$/i)
-  if (!match) return null
-  const score = Number(match[2]), max = Number(match[3])
+  if (line && !match) return null
+  const bands = lines.map(value => /^\s*[-*]\s+(?:\*\*)?overall_band:(?:\*\*)?\s*(?:\*\*)?(Bullish|Mildly Bullish|Neutral|Mixed|Mildly Bearish|Bearish)(?:\*\*)?\s*$/i.exec(value)).filter((value): value is RegExpExecArray => value !== null)
+  const scores = lines.map(value => /^\s*[-*]\s+(?:\*\*)?overall_score:(?:\*\*)?\s*(\d+(?:\.\d+)?)\s*\/\s*(10(?:\.0+)?)\s*$/i.exec(value)).filter((value): value is RegExpExecArray => value !== null)
+  if (!match && (bands.length !== 1 || scores.length !== 1)) return null
+  const label = match ? match[1].trim() : bands[0][1]
+  const scoreText = match ? match[2] : scores[0][1]
+  const maxText = match ? match[3] : scores[0][2]
+  const score = Number(scoreText), max = Number(maxText)
   if (!Number.isFinite(score) || !Number.isFinite(max) || max <= 0 || score > max) return null
-  return { label: match[1].trim(), score, max, display: `${match[2]}/${match[3]}` }
+  return { label, score, max, display: `${scoreText}/${maxText}` }
 }
 
 function ReportVisualizations({ sections }: { sections: Record<string, string> }) {

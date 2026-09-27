@@ -97,7 +97,7 @@ input:hover, select:hover { border-color: var(--muted); }
 .history { border: 1px solid var(--line); background: var(--paper); }
 .history-summary { display: flex; flex-wrap: wrap; gap: 10px 24px; padding: 16px 20px; border-bottom: 1px solid var(--line); color: var(--muted); font: 11px var(--mono); }
 .history-summary strong { color: var(--ink); font: 600 15px 'Space Grotesk', sans-serif; }
-.history-tickers { display: flex; gap: 8px; padding: 12px 20px; overflow-x: auto; border-bottom: 1px solid var(--line); scrollbar-width: thin; }
+.history-tickers { position: sticky; top: 68px; z-index: 12; display: flex; gap: 8px; padding: 12px 20px; overflow-x: auto; border-bottom: 1px solid var(--line); background: var(--paper); scrollbar-width: thin; scroll-margin-top: 86px; }
 .ticker-toggle { flex: none; display: flex; align-items: center; gap: 12px; min-height: 44px; padding: 8px 12px; color: var(--ink); background: var(--paper-alt); border: 1px solid var(--line); font: 11px var(--mono); }
 .ticker-toggle:hover { background: var(--surface-hover); }
 .ticker-toggle[aria-pressed="true"] { color: var(--on-primary); background: var(--blue); border-color: var(--blue); }
@@ -187,7 +187,8 @@ legend { margin-bottom: 12px; color: var(--muted); font: 12px var(--mono); }
 .stop-button { min-height: 46px; width: 100%; padding: 12px; color: var(--red); background: var(--paper); border: 0; border-top: 1px solid var(--line); font: 500 11px var(--mono); }
 .stop-button:hover { background: var(--red-soft); }
 .open-report { margin-top: 18px; }
-.report-toolbar { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin-bottom: 16px; color: var(--muted); font: 11px var(--mono); }
+.report-toolbar { position: sticky; top: 68px; z-index: 12; display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 8px 0; margin-bottom: 16px; color: var(--muted); background: var(--canvas); border-bottom: 1px solid var(--line); font: 11px var(--mono); }
+.report-toolbar select { width: auto; min-width: 90px; max-width: 160px; min-height: 44px; padding: 8px; font: 11px var(--mono); }
 .report-toolbar > div { display: flex; flex-wrap: wrap; gap: 12px; }
 .report { background: var(--paper); border: 1px solid var(--line); }
 .verdict { display: flex; align-items: center; justify-content: space-between; gap: 24px; padding: 28px; border-bottom: 1px solid var(--line); }
@@ -216,7 +217,7 @@ legend { margin-bottom: 12px; color: var(--muted); font: 12px var(--mono); }
 .sentiment-fill { display: block; height: 100%; background: var(--blue); }
 .sentiment-scale { display: flex; justify-content: space-between; margin-top: 7px; color: var(--muted); }
 .report-layout { display: grid; grid-template-columns: 185px minmax(0, 1fr); align-items: start; }
-.report-toc { position: sticky; top: 86px; max-height: calc(100vh - 104px); overflow-y: auto; padding: 22px 14px; }
+.report-toc { position: sticky; top: 130px; max-height: calc(100vh - 148px); overflow-y: auto; padding: 22px 14px; }
 .report-toc ol { display: grid; gap: 3px; padding: 0; margin: 14px 0 0; list-style: none; }
 .report-toc a { display: grid; grid-template-columns: 20px 1fr; gap: 4px; align-items: center; min-height: 44px; padding: 8px 4px; color: var(--muted); font-size: 12px; line-height: 1.4; text-decoration: none; }
 .report-toc a:hover, .report-toc a:focus { color: var(--blue); background: var(--blue-soft); }
@@ -251,13 +252,13 @@ legend { margin-bottom: 12px; color: var(--muted); font: 12px var(--mono); }
   .depth input { top: 17px; }
   .depth span { line-height: 1.5; }
   .report-layout { grid-template-columns: 1fr; }
-  .report-toc { z-index: 10; top: 68px; max-height: 160px; padding: 12px 16px; background: var(--paper); border-bottom: 1px solid var(--line); }
+  .report-toc { z-index: 10; top: 130px; max-height: 160px; padding: 12px 16px; background: var(--paper); border-bottom: 1px solid var(--line); }
   .report-toc > span { display: none; }
   .report-toc ol { display: flex; overflow-x: auto; gap: 8px; margin: 0; }
   .report-toc li { flex: none; }
   .report-toc a { display: flex; padding: 8px; }
   .report-sections { border-left: 0; }
-  .report-section { scroll-margin-top: 90px; }
+  .report-section { scroll-margin-top: 148px; }
 }
 @media (max-width: 760px) {
   .report-visuals { grid-template-columns: 1fr; padding: 16px; }
@@ -271,6 +272,10 @@ legend { margin-bottom: 12px; color: var(--muted); font: 12px var(--mono); }
   .workspace { display: block; }
   .command-sidebar { position: sticky; top: 60px; z-index: 15; height: auto; overflow: visible; border: 0; background: var(--canvas); }
   .workspace-nav { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 4px; padding: 6px 8px; background: var(--canvas); }
+  .history-tickers { top: 164px; scroll-margin-top: 174px; }
+  .report-toolbar { top: 164px; }
+  .report-toolbar > span { display: none; }
+  .report-toolbar select { flex: 1 1 auto; max-width: 145px; }
   .workspace-nav button { padding: 8px; font-size: 12px; }
   .workspace-nav button span { font-size: 10px; }
   .queue-panel, .sidebar-note { display: none; }
@@ -285,7 +290,7 @@ legend { margin-bottom: 12px; color: var(--muted); font: 12px var(--mono); }
   .history-pages { justify-content: center; }
   .history-pages span { order: -1; width: 100%; text-align: center; }
   .report-reader { scroll-margin-top: 174px; }
-  .report-toolbar { flex-wrap: wrap; }
+  .report-toc { top: 226px; }
   .command-panel, .active-runs, .report-area { padding: 24px 16px; }
   .output-bar { padding: 0 16px; min-height: 38px; font-size: 9px; }
   .output-bar > span:last-child { display: none; }
@@ -296,8 +301,7 @@ legend { margin-bottom: 12px; color: var(--muted); font: 12px var(--mono); }
   .job-head { padding: 18px 16px; }
   .job-meta, .connection-status { padding-inline: 16px; }
   .activity-stream { height: 38vh; min-height: 220px; }
-  .report-toc { top: 216px; }
-  .report-section { scroll-margin-top: 166px; }
+  .report-section { scroll-margin-top: 282px; }
   .verdict { align-items: start; flex-direction: column; padding: 22px 18px; }
   .section-head { padding: 8px 16px; }
   .markdown, .report-section pre { padding: 22px 18px; }

@@ -46,7 +46,7 @@ Volume-Based Indicators:
 
 Before writing the final report, call get_verified_market_snapshot for this ticker and the current date, and treat it as the source of truth for any exact OHLCV, price-level, or indicator-value claim. If another tool's output conflicts with the verified snapshot, flag the discrepancy rather than inventing a reconciled number. Do not claim historical validation, support/resistance bounces, or exact percentage moves unless they are directly supported by tool output with concrete dates and prices.
 
-Write a very detailed and nuanced report of the trends you observe. Provide specific, actionable insights with supporting evidence to help traders make informed decisions."""
+Write a very detailed and nuanced report of the trends you observe. Provide specific, actionable insights with supporting evidence to help traders make informed decisions. When both directions have evidence, add concise sections headed exactly ### Bullish Scenario and ### Bearish / Invalidation Scenario before the final table, with the verified observations and conditional triggers for each. Include these scenarios only when supported by verified data. Do not invent a case, price level, likelihood, or confidence to fill the visualization; omit an unsupported scenario."""
             + """ Make sure to append a Markdown table at the end of the report to organize key points in the report, organized and easy to read."""
             + get_language_instruction()
         )
