@@ -1,0 +1,12 @@
+{
+  "id": "aeee0b2ae89249949135a48fb4d3f61c",
+  "ticker": "QCOM",
+  "analysis_date": "2026-09-25",
+  "depth": 5,
+  "llm_model": "deepseek-v4.1-flash",
+  "status": "done",
+  "created_at": "2026-09-27T13:49:14.571410+00:00",
+  "elapsed_seconds": 854.6,
+  "error": null,
+  "rating": "Underweight"
+}

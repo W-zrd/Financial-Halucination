@@ -1,0 +1,12 @@
+{
+  "id": "6cfabd2a4aba4d93b6f5db6482cb01c1",
+  "ticker": "XOM",
+  "analysis_date": "2026-09-25",
+  "depth": 5,
+  "llm_model": "gemini-3.8-flash-high",
+  "status": "done",
+  "created_at": "2026-09-27T12:49:59.495277+00:00",
+  "elapsed_seconds": 836.14,
+  "error": null,
+  "rating": "Underweight"
+}

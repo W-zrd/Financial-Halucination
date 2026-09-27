@@ -1,0 +1,12 @@
+{
+  "id": "3d9959c3716d4a63ad5bbc852a6a3a84",
+  "ticker": "TSM",
+  "analysis_date": "2026-09-25",
+  "depth": 5,
+  "llm_model": "gemini-3.8-flash-high",
+  "status": "done",
+  "created_at": "2026-09-27T14:42:12.387116+00:00",
+  "elapsed_seconds": 856.45,
+  "error": null,
+  "rating": "Buy"
+}

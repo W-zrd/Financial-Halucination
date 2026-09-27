@@ -1,0 +1,15 @@
+**Rating**: Underweight
+
+**Executive Summary**: Trim existing XOM exposure by 20%–35% into tactical counter-trend bounces toward the $161.75–$162.50 resistance zone (10-day EMA and 20-day midline) to bring overall portfolio exposure to an Underweight stance (50%–70% of benchmark). Maintain a structural stop-loss on trimmed risk at $169.64 above the recent cyclical high, with a downside mean-reversion target at the 200-day SMA ($146.49). Recommended time horizon is 3–6 months across the refining margin normalization cycle.
+
+**Investment Thesis**: ExxonMobil's recent peak valuation near $170 was heavily propelled by an unsustainable refining windfall in Q2 2026 ($14.53B net income, representing 44.4% of TTM earnings), generated when ~3.0M bpd of global refining capacity was disrupted in the Middle East. Physical market realities are now rapidly unwinding this premium: over 13.5M bpd is clearing the Strait of Hormuz, Saudi seaborne exports have reached post-conflict highs, and Brent crude has retreated below $100/bbl over six consecutive sessions. Downstream crack spread compression will significantly diminish quarterly operating earnings back toward normalized baseline levels (such as Q1's $4.2B net income). 
+
+Crucially, organic trailing free cash flow of $30.56B failed to cover the $37.76B capital return program over the trailing twelve months (80.9% coverage, dropping to 24.3% in Q1). While management retains flexibility to modulate quarterly share repurchases ($5.0B/quarter) to safeguard the $4.3B dividend, reducing buybacks removes the single largest institutional bid that retired ~3.6%–4.0% of the share float over the past year. Furthermore, with the 10-Year Treasury yield at 5.18%, XOM's ~2.7% dividend yield imposes a steep -248 bps cash yield gap, driving equity risk premium compression. 
+
+Technically, price remains capped beneath the downward-sloping 10-day EMA ($161.76) with negative MACD momentum (-0.74). Although ExxonMobil retains elite upstream quality—anchored by sub-$35/bbl breakevens in Guyana and the Permian, recovering Waha natural gas prices ($2.00/mcf), and a pristine balance sheet (10.9% net debt-to-capital)—these structural advantages establish a solvency floor rather than justifying peak-cycle multiples. A full liquidation (Sell) is unwarranted given contracting volume (<11M shares) near dynamic support at the 50-day SMA ($159.01). However, taking partial profits to establish an Underweight stance provides optimal downside protection toward the 200-day SMA ($146.49). 
+
+The Underweight thesis would be invalidated if maritime disruptions re-escalate to choke refining capacity or if XOM achieves a confirmed daily breakout above major overhead resistance at $169.64 on expanding institutional volume.
+
+**Price Target**: 146.49
+
+**Time Horizon**: 3-6 months

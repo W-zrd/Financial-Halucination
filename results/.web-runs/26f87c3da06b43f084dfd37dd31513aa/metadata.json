@@ -1,0 +1,12 @@
+{
+  "id": "26f87c3da06b43f084dfd37dd31513aa",
+  "ticker": "CVX",
+  "analysis_date": "2026-09-25",
+  "depth": 5,
+  "llm_model": "gemini-3.8-flash-high",
+  "status": "done",
+  "created_at": "2026-09-27T15:24:29.982595+00:00",
+  "elapsed_seconds": 767.72,
+  "error": null,
+  "rating": "Overweight"
+}

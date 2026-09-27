@@ -1,0 +1,11 @@
+**Rating**: Buy
+
+**Executive Summary**: Initiate a Buy on TSM by deploying an initial 20% tranche at market levels ($450.61), scaling into a full benchmark position on either a mean-reversion pullback toward the 10-day EMA ($440.50–$441.00) or a confirmed breakout close above the Upper Bollinger Band ($457.68). Risk is managed with a structural stop-loss set below the 50-day SMA at $418.00 to accommodate 14-day ATR volatility ($10.54), targeting initial summer resistance at $466.42 and all-time highs of $476.29+ over a 6-12 month horizon.
+
+**Investment Thesis**: Taiwan Semiconductor Manufacturing Company (TSM) maintains an unassailable technological and economic moat as the sole tollbooth for advanced computing and custom hyperscaler ASICs. In Q2 2026, revenue expanded +36.04% YoY with gross margins surging to 67.72% and operating margins topping 60.35%, decisively disproving margin compression fears despite heavy capital transfers from Construction in Progress. Further pricing power is confirmed by locked-in 3% to 6% price increases across N3/N2 nodes starting in 2027 and geographic surcharges of 20% to 30%+ on overseas fabs. 
+
+While the conservative analyst highlighted valid tactical concerns regarding overhead dynamic resistance at the Upper Bollinger Band ($457.68) and multiple compression risks from the 10-Year Treasury yield reaching 5.18%, TSM's NT$ 2.53 trillion (~$77B+) net cash fortress and NT$ 1.12 trillion TTM free cash flow convert elevated interest rates into an operating income driver. Macro rate risks are neutralized by using a disciplined staged entry—accumulating a 20% pilot tranche at market and adding on pullbacks to the 10-day EMA ($440.50) or upon dynamic resistance breakout ($457.68)—which corrects the risk-to-reward skew while respecting the structurally sound $418.00 invalidation level. The thesis would be invalidated if TSM experiences unexpected leading-edge node yield collapses or if broader sovereign rate spikes trigger a sustained daily close below the 50-day SMA ($418.00).
+
+**Price Target**: 476.29
+
+**Time Horizon**: 6-12 months

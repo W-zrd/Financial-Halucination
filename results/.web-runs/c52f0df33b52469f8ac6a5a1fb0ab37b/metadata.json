@@ -1,0 +1,12 @@
+{
+  "id": "c52f0df33b52469f8ac6a5a1fb0ab37b",
+  "ticker": "AVGO",
+  "analysis_date": "2026-09-25",
+  "depth": 5,
+  "llm_model": "gemini-3.8-flash-high",
+  "status": "done",
+  "created_at": "2026-09-27T09:27:45.711437+00:00",
+  "elapsed_seconds": 2543.27,
+  "error": null,
+  "rating": "Overweight"
+}

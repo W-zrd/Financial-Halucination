@@ -1,0 +1,18 @@
+**Action**: Sell
+
+**Reasoning**
+
+The research plan's Underweight maps to Sell, and the price structure supports acting on it now rather than waiting.
+
+- **The trend is real, but the entry is not.** The plan concedes every bullish technical: full MA stack (201.97 > 10 EMA 191.02 > 50 SMA 169.64 > 200 SMA 167.65), MACD 8.12 above signal 5.99 with a widening +2.13 histogram, VWMA 184.97 rising beneath price. That is precisely why this is a trim/underweight and not an outright short-the-franchise call — but it is also why the stock is being offered at the top of its range rather than the bottom.
+- **Price is pinned at a rejection level, not a breakout.** The 2026-09-25 session printed a 20-day high of 205.85, pierced the upper Bollinger band (204.80), and closed back beneath it at 201.97. RSI at 67.96 is pressing 70 after already failing at 70.40 on 2026-09-15 and 68.65 on 2026-09-17. Combined with the plan's point that the market is already "discounting the turn" and that the November print adjudicates gross margin, buyback pace, and a +28% inventory build simultaneously, the asymmetry is negative at ~$202.
+- **Volatility argues against tight risk management on the long side.** ATR 8.65 (~4.3% of price) means a 12% stop — the plan's reference for the bull's dip-buy zone at 191.02/184.97 — is only ~2.8 ATR of room on a name that fell -5.8% in a single session on 2026-09-18. Risk is better expressed by reducing exposure than by trying to hold a long through the print with a wide stop.
+- **Where the plan and the tape agree:** the 204.80–205.85 zone is the line. A close above it with an expanding histogram would invalidate the bearish tactical call; a failure there confirms the rejection and favors further trimming.
+
+What I am explicitly not doing: I am not crediting either side's inference about the undisclosed Apple renewal terms, and I have no guidance, segment detail, or earnings-call commentary to work from. Those gaps are acknowledged in the plan and I leave them unresolved.
+
+**Entry Price**: 201.97 (the 2026-09-25 close). Trim existing long exposure here; a secondary trim is appropriate if price trades up to 205.85 (the 20-day high / upper band rejection zone) before the print.
+
+**Stop Loss**: 210.62 — one ATR (8.65) above the entry, and above the 205.85 rejection high, so the bearish tactical call is only invalidated by a genuine breakout rather than intraday noise. For a holder who is only trimming a long rather than expressing a short, the equivalent invalidation trigger is a close above 205.85; on a confirmed breakout close, stop trimming and reassess rather than adding.
+
+**Position Sizing**: No portfolio context was provided, so I do not know current holdings or cash. Sized against a benchmark-weight QCOM position: reduce existing exposure by one-third to one-half, taking the position to a clear underweight versus the index, and cap total QCOM exposure at no more than half of benchmark weight until the early-November FY2026 print clears. Do not initiate new exposure at 201.97. If the print shows gross margin at or below 51%, treat the bear thesis as confirmed and move toward zero rather than adding on weakness. If instead gross margin stabilizes at or above 53% with a held buyback pace and declining inventory, upgrade toward Hold and rebuild toward benchmark from the 50/200 SMA cluster at 167.65–169.64 on a higher low — materially below the 191.02/184.97 dip zone, which I do not endorse buying given the current ATR.

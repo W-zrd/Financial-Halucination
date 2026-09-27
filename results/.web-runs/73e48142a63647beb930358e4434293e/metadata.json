@@ -1,0 +1,12 @@
+{
+  "id": "73e48142a63647beb930358e4434293e",
+  "ticker": "CRWD",
+  "analysis_date": "2026-09-25",
+  "depth": 5,
+  "llm_model": "gemini-3.8-flash-high",
+  "status": "done",
+  "created_at": "2026-09-27T10:45:03.988675+00:00",
+  "elapsed_seconds": 2095.58,
+  "error": null,
+  "rating": "Underweight"
+}
