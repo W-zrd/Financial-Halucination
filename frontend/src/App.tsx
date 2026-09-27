@@ -31,7 +31,6 @@ type Job = {
 type LiveEvent = { message: string; eventType?: string }
 type ActiveJob = Job & { events: LiveEvent[]; connection?: 'connecting' | 'live' | 'reconnecting' | 'disconnected' }
 
-const tickers = ['AMD', 'CRWD', 'PANW', 'AVGO', 'MU', 'SPY']
 const depths = [
   { value: 1, name: 'Quick', meaning: 'Quick research, few debate and strategy discussion rounds' },
   { value: 3, name: 'Medium', meaning: 'Middle ground, moderate debate rounds and strategy discussion' },
@@ -48,6 +47,11 @@ const labels: Record<string, string> = {
   complete_report: 'Complete Report',
 }
 const terminalStatuses = new Set(['done', 'failed', 'cancelled'])
+const historyPageSize = 8
+
+function TrashIcon() {
+  return <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" focusable="false"><path d="M4 7h16M9 7V4h6v3m3 0-1 13H7L6 7m4 4v6m4-6v6" /></svg>
+}
 
 function BrandIcon() {
   return <svg className="brand-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" focusable="false">
@@ -126,6 +130,7 @@ export default function App() {
   const [view, setView] = useState<'new' | 'jobs' | 'reports' | 'overview'>('overview')
   const [focusedJobId, setFocusedJobId] = useState('')
   const [expandedTicker, setExpandedTicker] = useState('')
+  const [historyPage, setHistoryPage] = useState(0)
   const [removing, setRemoving] = useState<string[]>([])
   const removalPending = useRef(new Set<string>())
   const removedRuns = useRef(new Set<string>())
@@ -147,8 +152,17 @@ export default function App() {
         right.analysis_date.localeCompare(left.analysis_date) || right.created_at.localeCompare(left.created_at)
       )] as const)
   }, [runs])
-  const maxTickerRuns = Math.max(1, ...groupedRuns.map(([, items]) => items.length))
   const analysisDateCount = new Set(runs.map(run => run.analysis_date).filter(Boolean)).size
+  const focusedRuns = groupedRuns.find(([name]) => name === expandedTicker)?.[1] || []
+  const focusedDateCount = new Set(focusedRuns.map(run => run.analysis_date).filter(Boolean)).size
+  const currentHistoryPage = Math.min(historyPage, Math.max(0, Math.ceil(focusedRuns.length / historyPageSize) - 1))
+  const pageRuns = focusedRuns.slice(currentHistoryPage * historyPageSize, (currentHistoryPage + 1) * historyPageSize)
+  const ratingCounts = [...focusedRuns.reduce((counts, run) => {
+    const rating = run.rating || 'Not available'
+    counts.set(rating, (counts.get(rating) || 0) + 1)
+    return counts
+  }, new Map<string, number>()).entries()]
+  const maxRatingCount = Math.max(1, ...ratingCounts.map(([, count]) => count))
 
   useEffect(() => {
     if (view === 'reports' && selected) document.getElementById('saved-report-reader')?.scrollIntoView?.({ block: 'start' })
@@ -171,6 +185,12 @@ export default function App() {
     setError('')
     try { await loadOverview() }
     catch (err) { setError(err instanceof Error ? err.message : 'Unable to load dashboard') }
+  }
+
+  function showReportLibrary() {
+    openRunRequest.current++
+    setSelected(null)
+    setView('reports')
   }
 
   async function loadHistory() {
@@ -203,7 +223,7 @@ export default function App() {
       if (!Array.isArray(available.models) || !available.models.every(model => typeof model === 'string' && model.length > 0)) throw new Error('Invalid model list')
       if (request !== modelsRequest.current) return
       setModels(available.models)
-      setLlmModel(available.default_model && available.models.includes(available.default_model) ? available.default_model : '')
+      setLlmModel(available.models.includes('gemini-3.8-flash-high') ? 'gemini-3.8-flash-high' : available.default_model && available.models.includes(available.default_model) ? available.default_model : '')
     } catch (err) {
       if (request === modelsRequest.current) setModelsError(err instanceof Error ? err.message : 'Unable to load models')
     }
@@ -433,7 +453,7 @@ export default function App() {
           <button className="dashboard-nav" aria-current={view === 'overview' ? 'page' : undefined} onClick={() => void showOverview()}>Analysis dashboard <span>▦</span></button>
           <button aria-current={view === 'new' ? 'page' : undefined} onClick={() => setView('new')}>New analysis <span>＋</span></button>
           <button aria-current={view === 'jobs' ? 'page' : undefined} onClick={() => setView('jobs')}>Live runs <span>{jobs.filter(job => !terminalStatuses.has(job.status)).length}</span></button>
-          <button aria-current={view === 'reports' ? 'page' : undefined} onClick={() => setView('reports')}>Saved reports <span>{runs.length}</span></button>
+          <button aria-current={view === 'reports' ? 'page' : undefined} onClick={showReportLibrary}>Saved reports <span>{runs.length}</span></button>
         </nav>
         <section className="queue-panel" aria-label="Run queue">
           <div className="panel-title">RUN QUEUE <small>{jobs.length}</small></div>
@@ -453,8 +473,8 @@ export default function App() {
           <div className="section-title"><div><span className="section-number">01 / SETUP</span><h2 id="setup-title">Start a research run</h2></div><p>Choose a market target. Existing runs continue independently.</p></div>
           <form onSubmit={start}>
             <div className="grid-two">
-              <label>Ticker<input aria-label="Ticker" list="ticker-options" value={ticker} onChange={event => setTicker(event.target.value)} maxLength={32} /><datalist id="ticker-options">{tickers.map(item => <option key={item}>{item}</option>)}</datalist></label>
-              <label>Analysis date<input type="date" value={analysisDate} max={maxDate} onChange={event => setAnalysisDate(event.target.value)} /></label>
+              <label>Ticker<input type="text" aria-label="Ticker" autoComplete="off" value={ticker} onChange={event => setTicker(event.target.value)} maxLength={32} /></label>
+              <label>Analysis date<input className="analysis-date-input" type="date" value={analysisDate} max={maxDate} onClick={event => event.currentTarget.showPicker?.()} onChange={event => setAnalysisDate(event.target.value)} /></label>
             </div>
             <label className="model-field">LLM model
               <select value={llmModel} onChange={event => setLlmModel(event.target.value)} disabled={!models.length}>
@@ -479,39 +499,44 @@ export default function App() {
           </> : <p className="empty">No live runs. Start a new analysis to see agent activity here.</p>}
         </section>}
         {view === 'reports' && <section className="report-area" aria-label="Saved reports workspace">
-          <div className="section-title"><div><span className="section-number">03 / TRACK</span><h2>Saved reports</h2></div><p>Browse each ticker's analysis dates and compare saved decisions. Counts reflect saved runs, including reruns.</p></div>
-          <section className="history" aria-label="Analysis run history">
-            <div className="history-summary">
-              <div><strong>{runs.length}</strong> saved analyses</div>
-              <div><strong>{groupedRuns.length}</strong> tickers</div>
-              <div><strong>{analysisDateCount}</strong> analysis dates</div>
-            </div>
-            {groupedRuns.length > 0 && <div className="history-chart" role="img" aria-label="Saved analyses per ticker">
-              {groupedRuns.map(([name, tickerRuns]) => <div className="history-bar-row" key={name}><span>{name}</span><div className="history-bar-track"><span style={{ width: `${tickerRuns.length / maxTickerRuns * 100}%` }} /></div><b>{tickerRuns.length}</b></div>)}
-            </div>}
-            <div className="history-list">{groupedRuns.length ? groupedRuns.map(([name, tickerRuns]) => {
-              const dates = new Set(tickerRuns.map(run => run.analysis_date).filter(Boolean)).size
-              return <div className={`ticker-group ${expandedTicker === name ? 'expanded' : ''}`} key={name}>
-            <button className="ticker-toggle" aria-label={`Show ${name} report dates`} aria-expanded={expandedTicker === name} onClick={() => setExpandedTicker(current => current === name ? '' : name)}><b>{name}</b><span>{tickerRuns.length} {tickerRuns.length === 1 ? 'analysis' : 'analyses'} · {dates} {dates === 1 ? 'date' : 'dates'}</span></button>
-              {expandedTicker === name && <div className="ticker-dates">{tickerRuns.map(run => {
-                const repeatedDate = tickerRuns.some(item => item !== run && item.analysis_date === run.analysis_date)
-                const descriptor = repeatedDate ? `${run.analysis_date} ${run.created_at || run.id}` : run.analysis_date
-                return <div className={selected?.id === run.id ? 'history-row selected' : 'history-row'} key={run.id}>
-                <button className="history-open" disabled={removing.includes(run.id)} onClick={() => openRun(run)} aria-label={`Open ${name} ${descriptor} report`} aria-pressed={selected?.id === run.id}>
-                  <time dateTime={run.analysis_date}>{run.analysis_date || 'Date not available'}</time>
-                  {repeatedDate && <small className="history-created">{run.created_at || run.id}</small>}
-                  <small className="history-depth">{depths.some(item => String(item.value) === String(run.depth)) ? `D${run.depth}` : 'Depth not available'}</small>
-                  <small className="history-model">LLM model: {run.llm_model || 'Not available'}</small>
-                  <em className={`rating ${String(run.rating).toLowerCase()}`}>{run.rating || 'Not available'}</em>
-                </button>
-                <button className="history-remove" disabled={removing.includes(run.id)} onClick={() => removeRun(run, descriptor)} aria-label={`Remove ${name} ${descriptor} report`} title="Remove this saved analysis">×</button>
-              </div>})}</div>}
-            </div>}) : <p className="empty">No completed runs.</p>}</div>
-          </section>
-          {selected ? <div className="report-reader" id="saved-report-reader">
-            <div className="report-toolbar"><div><span className="section-number">04 / READ</span><span>{selected.ticker} · {selected.analysis_date || 'Date not available'} · SAVED REPORT</span></div><button className="ghost" onClick={() => setRaw(!raw)}>{raw ? 'Rendered view' : 'Raw view'}</button></div>
+          {!selected ? <>
+            <div className="section-title"><div><span className="section-number">03 / TRACK</span><h2>Saved reports</h2></div><p>Choose a ticker, then browse its dated decisions. Counts include saved reruns.</p></div>
+            <section className="history" aria-label="Analysis run history">
+              <div className="history-summary">
+                <div><strong>{runs.length}</strong> saved analyses</div>
+                <div><strong>{groupedRuns.length}</strong> tickers</div>
+                <div><strong>{analysisDateCount}</strong> analysis {analysisDateCount === 1 ? 'date' : 'dates'}</div>
+              </div>
+              {groupedRuns.length ? <>
+                <div className="history-tickers" role="group" aria-label="Tracked tickers">{groupedRuns.map(([name, tickerRuns]) => <button key={name} className="ticker-toggle" aria-label={`Show ${name} report dates`} aria-pressed={expandedTicker === name} onClick={() => { setExpandedTicker(name); setHistoryPage(0) }}><b>{name}</b><span>{tickerRuns.length}</span></button>)}</div>
+                {focusedRuns.length ? <>
+                  <div className="history-chart" role="img" aria-label={`${expandedTicker} saved decision counts: ${ratingCounts.map(([rating, count]) => `${rating} ${count}`).join(', ')}`}>
+                    <div className="history-chart-title">{expandedTicker} / SAVED DECISIONS <small>All runs · exact report ratings</small></div>
+                    {ratingCounts.map(([rating, count]) => <div className="history-bar-row" key={rating}><span title={rating}>{rating}</span><div className="history-bar-track"><span style={{ width: `${count / maxRatingCount * 100}%` }} /></div><b>{count}</b></div>)}
+                  </div>
+                  <div className="history-focus"><div><strong>{expandedTicker}</strong><span>{focusedRuns.length} {focusedRuns.length === 1 ? 'analysis' : 'analyses'} · {focusedDateCount} {focusedDateCount === 1 ? 'date' : 'dates'}</span></div><small>Newest analysis date first</small></div>
+                  <div className="history-list">{pageRuns.map(run => {
+                    const repeatedDate = focusedRuns.some(item => item !== run && item.analysis_date === run.analysis_date)
+                    const descriptor = repeatedDate ? `${run.analysis_date} ${run.created_at || run.id}` : run.analysis_date
+                    return <div className="history-row" key={run.id}>
+                      <button className="history-open" disabled={removing.includes(run.id)} onClick={() => openRun(run)} aria-label={`Open ${expandedTicker} ${descriptor} report`}>
+                        <time dateTime={run.analysis_date}>{run.analysis_date || 'Date not available'}</time>
+                        {repeatedDate && <small className="history-created">{run.created_at || run.id}</small>}
+                        <small className="history-depth">{depths.some(item => String(item.value) === String(run.depth)) ? `D${run.depth}` : 'Depth not available'}</small>
+                        <small className="history-model">LLM model: {run.llm_model || 'Not available'}</small>
+                        <em className={`rating ${String(run.rating).toLowerCase()}`}>{run.rating || 'Not available'}</em>
+                      </button>
+                      <button className="history-remove" disabled={removing.includes(run.id)} onClick={() => removeRun(run, descriptor)} aria-label={`Remove ${expandedTicker} ${descriptor} report`} title="Remove this saved analysis"><TrashIcon /></button>
+                    </div>
+                  })}</div>
+                  {focusedRuns.length > historyPageSize && <div className="history-pages"><button disabled={currentHistoryPage === 0} onClick={() => setHistoryPage(currentHistoryPage - 1)}>Newer analyses</button><span>{currentHistoryPage * historyPageSize + 1}–{Math.min((currentHistoryPage + 1) * historyPageSize, focusedRuns.length)} of {focusedRuns.length}</span><button disabled={(currentHistoryPage + 1) * historyPageSize >= focusedRuns.length} onClick={() => setHistoryPage(currentHistoryPage + 1)}>Older analyses</button></div>}
+                </> : <p className="history-hint">Select a ticker to browse its saved dates.</p>}
+              </> : <p className="empty">No completed runs.</p>}
+            </section>
+          </> : <div className="report-reader" id="saved-report-reader">
+            <div className="report-toolbar"><button className="report-back" onClick={showReportLibrary}>← Back to saved reports</button><span>{selected.ticker} · {selected.analysis_date || 'Date not available'}</span><button className="ghost" onClick={() => setRaw(!raw)}>{raw ? 'Rendered view' : 'Raw view'}</button></div>
             <Report run={selected} raw={raw} />
-          </div> : <p className="history-prompt">Select a ticker and date to read its saved report.</p>}
+          </div>}
         </section>}
       </main>
     </div>

@@ -42,17 +42,75 @@ test('keeps history off the navigation rail and tracks ticker counts and separat
   expect(library).toHaveTextContent('3 saved analyses')
   expect(library).toHaveTextContent('2 tickers')
   expect(library).toHaveTextContent('2 analysis dates')
-  const chart = screen.getByRole('img', { name: /saved analyses per ticker/i })
-  expect(chart).toHaveTextContent('AMD')
-  expect(chart).toHaveTextContent('MU')
-  expect(chart).toHaveTextContent('2')
   await userEvent.click(screen.getByRole('button', { name: /show AMD report dates/i }))
+  const chart = screen.getByRole('img', { name: /AMD saved decision counts/i })
+  expect(chart).toHaveTextContent('Buy')
+  expect(chart).toHaveTextContent('Hold')
+  expect(chart).toHaveTextContent('1')
   expect(screen.getAllByRole('button', { name: /open AMD/i }).map(button => button.getAttribute('aria-label'))).toEqual([
     'Open AMD 2026-09-25 report', 'Open AMD 2026-09-24 report',
   ])
   await userEvent.click(screen.getByRole('button', { name: 'Open AMD 2026-09-24 report' }))
   expect(await screen.findByText('Older evidence')).toBeInTheDocument()
-  expect(library).toBeInTheDocument()
+  expect(library).not.toBeInTheDocument()
+})
+
+test('bounds a long ticker history, pages all dates and opens a dedicated reader', async () => {
+  const reports = Array.from({ length: 19 }, (_, index) => ({
+    id: `amd-${index + 1}`, ticker: 'AMD', analysis_date: `2026-09-${String(index + 1).padStart(2, '0')}`,
+    depth: 3, status: 'done', rating: 'Hold', created_at: `2026-09-${String(index + 1).padStart(2, '0')}`,
+  }))
+  vi.mocked(fetch).mockImplementation((input: RequestInfo | URL) => {
+    const url = String(input)
+    if (url.endsWith('/api/session')) return ok({ username: 'analyst', csrf_token: 'csrf' })
+    if (url.endsWith('/api/runs')) return ok(reports)
+    if (url.endsWith('/api/runs/amd-1')) return ok({ ...reports[0], sections: { market_report: 'Oldest evidence' } })
+    return ok({})
+  })
+  render(<App />)
+  await userEvent.click(await screen.findByRole('button', { name: /saved reports/i }))
+  await userEvent.click(await screen.findByRole('button', { name: /show AMD report dates/i }))
+  expect(screen.getAllByRole('button', { name: /open AMD/i })).toHaveLength(8)
+  expect(screen.getByText('1–8 of 19')).toBeInTheDocument()
+  expect(screen.getByRole('button', { name: 'Older analyses' })).toBeEnabled()
+  await userEvent.click(screen.getByRole('button', { name: 'Older analyses' }))
+  expect(screen.getByText('9–16 of 19')).toBeInTheDocument()
+  await userEvent.click(screen.getByRole('button', { name: 'Older analyses' }))
+  expect(screen.getByText('17–19 of 19')).toBeInTheDocument()
+  expect(screen.getAllByRole('button', { name: /open AMD/i })).toHaveLength(3)
+  expect(screen.getByRole('button', { name: 'Older analyses' })).toBeDisabled()
+  await userEvent.click(screen.getByRole('button', { name: 'Open AMD 2026-09-01 report' }))
+  expect(await screen.findByText('Oldest evidence')).toBeInTheDocument()
+  expect(screen.queryByRole('region', { name: 'Analysis run history' })).not.toBeInTheDocument()
+  await userEvent.click(screen.getByRole('button', { name: /Back to saved reports/ }))
+  expect(screen.getByText('17–19 of 19')).toBeInTheDocument()
+})
+
+test('uses keyboard-only ticker, whole-field date picker and offered Gemini as the initial model', async () => {
+  const picker = vi.fn()
+  const original = HTMLInputElement.prototype.showPicker
+  HTMLInputElement.prototype.showPicker = picker
+  vi.mocked(fetch).mockImplementation((input: RequestInfo | URL) => {
+    const url = String(input)
+    if (url.endsWith('/api/session')) return ok({ username: 'analyst', csrf_token: 'csrf' })
+    if (url.endsWith('/api/models')) return ok({ models: ['DeepSeek-V4-Pro', 'gemini-3.8-flash-high'], default_model: 'DeepSeek-V4-Pro' })
+    if (url.endsWith('/api/runs')) return ok([])
+    return ok({})
+  })
+  try {
+    render(<App />)
+    await userEvent.click(await screen.findByRole('button', { name: /new analysis/i }))
+    const ticker = screen.getByRole('textbox', { name: 'Ticker' })
+    expect(ticker).toHaveAttribute('type', 'text')
+    expect(ticker).not.toHaveAttribute('list')
+    expect(document.querySelector('datalist')).toBeNull()
+    expect(await screen.findByRole('combobox', { name: 'LLM model' })).toHaveValue('gemini-3.8-flash-high')
+    const date = screen.getByLabelText('Analysis date')
+    await userEvent.click(date)
+    expect(picker).toHaveBeenCalledOnce()
+  } finally {
+    HTMLInputElement.prototype.showPicker = original
+  }
 })
 
 test('charts explicit market scenarios and numeric sentiment above report text without invented odds', async () => {
@@ -255,7 +313,7 @@ test('renders real rating vocabulary and markdown without raw html', async () =>
   render(<App />)
   await userEvent.click(await screen.findByRole('button', { name: /saved reports/i }))
   await userEvent.click(await screen.findByRole('button', { name: /show AMD report dates/i }))
-  expect(await screen.findByText('Overweight')).toBeInTheDocument()
+  expect(await screen.findByText('Overweight', { selector: '.history-row .rating' })).toBeInTheDocument()
   expect(screen.getByText(/Depth not available/)).toBeInTheDocument()
   expect(screen.queryByText(/DNot available/)).not.toBeInTheDocument()
   await userEvent.click(screen.getByRole('button', { name: 'Open AMD 2026-09-24 report' }))
@@ -280,7 +338,7 @@ test('groups saved runs by alphabetized ticker and reveals dates on tap', async 
   await userEvent.click(await screen.findByRole('button', { name: /saved reports/i }))
   const groups = await screen.findAllByRole('button', { name: /show .* report dates/i })
   expect(groups.map(group => group.querySelector('b')?.textContent)).toEqual(['AMD', 'TSM'])
-  expect(groups.map(group => group.querySelector('span')?.textContent)).toEqual(['1 analysis · 1 date', '2 analyses · 2 dates'])
+  expect(groups.map(group => group.querySelector('span')?.textContent)).toEqual(['1', '2'])
   expect(screen.queryByRole('button', { name: /open TSM 2026-09-24/i })).not.toBeInTheDocument()
 
   await userEvent.click(screen.getByRole('button', { name: /show TSM report dates/i }))
@@ -341,6 +399,7 @@ test('disambiguates same-date reruns and keeps newer selection during pending de
   expect(new Set(removes.map(button => button.getAttribute('aria-label'))).size).toBe(2)
   await userEvent.click(screen.getByRole('button', { name: /open AMD 2026-09-24.*10:00/i }))
   expect(await screen.findByText('Older report')).toBeInTheDocument()
+  await userEvent.click(screen.getByRole('button', { name: /Back to saved reports/ }))
   await userEvent.click(screen.getByRole('button', { name: /remove AMD 2026-09-24.*10:00/i }))
   expect(resolveDelete).toBeDefined()
   await userEvent.click(screen.getByRole('button', { name: /open AMD 2026-09-24.*11:00/i }))
@@ -386,7 +445,10 @@ test('shows long same-date rerun metadata, depth, verdict and separate remove ac
   expect(open.querySelector('.history-created')).toHaveTextContent(timestamp)
   expect(open.querySelector('.history-depth')).toHaveTextContent('D5')
   expect(open.querySelector('.rating')).toHaveTextContent('Strong Buy')
-  expect(screen.getByRole('button', { name: `Remove AMD 2026-09-24 ${timestamp} report` })).toHaveAttribute('title', 'Remove this saved analysis')
+  const remove = screen.getByRole('button', { name: `Remove AMD 2026-09-24 ${timestamp} report` })
+  expect(remove).toHaveAttribute('title', 'Remove this saved analysis')
+  expect(remove.querySelector('svg[aria-hidden="true"]')).toBeInTheDocument()
+  expect(remove).not.toHaveTextContent('×')
 })
 
 test('uses Financial Halucination on login', async () => {
@@ -834,6 +896,7 @@ test('shows saved model from list and detail, with a legacy fallback in both pla
   expect(screen.getByText('LLM model: gemini-3.8-flash-high', { selector: '.history-model' })).toBeInTheDocument()
   await userEvent.click(screen.getByRole('button', { name: /open AMD/i }))
   expect(await screen.findByText('gemini-3.8-flash-high', { selector: '.report-model' })).toBeInTheDocument()
+  await userEvent.click(screen.getByRole('button', { name: /Back to saved reports/ }))
   await userEvent.click(screen.getByRole('button', { name: /show MU report dates/i }))
   expect(screen.getByText('LLM model: Not available', { selector: '.history-model' })).toBeInTheDocument()
   await userEvent.click(screen.getByRole('button', { name: /open MU/i }))
