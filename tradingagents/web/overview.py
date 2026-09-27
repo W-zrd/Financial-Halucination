@@ -68,10 +68,21 @@ def build_overview(results_dir: Path) -> dict:
             latest[ticker] = run
 
     days: dict[str, dict] = {}
-    for (_, analysis_date), run in by_ticker_day.items():
+    ticker_observations: dict[str, list[dict]] = {}
+    for (ticker, analysis_date), run in sorted(by_ticker_day.items()):
+        rating = str(run["rating"])
+        category = _category(rating)
         point = days.setdefault(analysis_date, {"analysis_date": analysis_date, "buy": 0, "hold": 0, "sell": 0, "unknown": 0})
-        point[_category(str(run["rating"]))] += 1
+        point[category] += 1
+        ticker_observations.setdefault(ticker, []).append({
+            "analysis_date": analysis_date, "rating": rating,
+            "category": category, "run_id": run["id"],
+        })
     timeline = [days[day] for day in sorted(days)]
+    ticker_timeline = [
+        {"ticker": ticker, "observations": observations}
+        for ticker, observations in ticker_observations.items()
+    ]
 
     rows = []
     counts = {"buy": 0, "hold": 0, "sell": 0, "unknown": 0}
@@ -144,4 +155,5 @@ def build_overview(results_dir: Path) -> dict:
     return {
         "budget": BUDGET_CENTS / 100, "cash": cash_cents / 100,
         "counts": counts, "rows": rows, "timeline": timeline,
+        "ticker_timeline": ticker_timeline,
     }

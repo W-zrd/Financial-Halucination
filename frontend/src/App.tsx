@@ -123,7 +123,7 @@ export default function App() {
   const [starting, setStarting] = useState(false)
   const [jobs, setJobs] = useState<ActiveJob[]>([])
   const [raw, setRaw] = useState(false)
-  const [view, setView] = useState<'new' | 'jobs' | 'reports' | 'overview'>('new')
+  const [view, setView] = useState<'new' | 'jobs' | 'reports' | 'overview'>('overview')
   const [focusedJobId, setFocusedJobId] = useState('')
   const [expandedTicker, setExpandedTicker] = useState('')
   const [removing, setRemoving] = useState<string[]>([])
@@ -153,6 +153,7 @@ export default function App() {
     setOverview(null)
     try {
       const snapshot = await api<OverviewData>('/api/overview')
+      if (!Array.isArray(snapshot.rows) || !snapshot.counts || typeof snapshot.budget !== 'number' || typeof snapshot.cash !== 'number') throw new Error('Invalid dashboard response')
       if (request === overviewRequest.current) setOverview(snapshot)
     } catch (err) {
       if (request === overviewRequest.current) throw err
@@ -182,7 +183,7 @@ export default function App() {
       .filter(job => job.status === 'queued' || job.status === 'running')
       .map(job => ({ ...job, events: [] }))
     setJobs(active)
-    if (active.length) { setFocusedJobId(active[0].id); setView('jobs') }
+    if (active.length) setFocusedJobId(active[0].id)
     active.forEach(monitor)
   }
 
@@ -202,13 +203,16 @@ export default function App() {
     }
   }
 
+  function openWorkspace(value: Session) {
+    setSession(value)
+    void loadModels()
+    void restoreWorkspace().catch(() => setError('Signed in, but the workspace could not be restored.'))
+    void loadOverview().catch(err => setError(err instanceof Error ? err.message : 'Unable to load dashboard'))
+  }
+
   useEffect(() => {
     api<Session>('/api/session')
-      .then(async value => {
-        setSession(value)
-        void loadModels()
-        await restoreWorkspace()
-      })
+      .then(openWorkspace)
       .catch(() => setSession(null))
     return () => { modelsRequest.current++; Object.values(streams.current).forEach(stream => stream.close()) }
   }, [])
@@ -406,11 +410,7 @@ export default function App() {
   }
 
   if (session === undefined) return <main className="loading">CONNECTING TO ANALYSIS NODE…</main>
-  if (!session) return <Login onLogin={value => {
-    setSession(value)
-    void loadModels()
-    restoreWorkspace().catch(() => setError('Signed in, but the workspace could not be restored.'))
-  }} />
+  if (!session) return <Login onLogin={openWorkspace} />
 
   return <div className="app-shell">
     <header className="topbar">
@@ -424,8 +424,8 @@ export default function App() {
     <div className={`workspace view-${view}`}>
       <aside className="command-sidebar" aria-label="Workspace navigation">
         <nav className="workspace-nav" aria-label="Workspace sections">
+          <button className="dashboard-nav" aria-current={view === 'overview' ? 'page' : undefined} onClick={() => void showOverview()}>Analysis dashboard <span>▦</span></button>
           <button aria-current={view === 'new' ? 'page' : undefined} onClick={() => setView('new')}>New analysis <span>＋</span></button>
-          <button aria-current={view === 'overview' ? 'page' : undefined} onClick={() => void showOverview()}>Analysis dashboard <span>▦</span></button>
           <button aria-current={view === 'jobs' ? 'page' : undefined} onClick={() => setView('jobs')}>Live runs <span>{jobs.filter(job => !terminalStatuses.has(job.status)).length}</span></button>
           <button aria-current={view === 'reports' ? 'page' : undefined} onClick={() => setView('reports')}>Saved reports <span>{runs.length}</span></button>
         </nav>

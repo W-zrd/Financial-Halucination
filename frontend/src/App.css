@@ -81,6 +81,8 @@ input:hover, select:hover { border-color: var(--muted); }
 .workspace-nav button { display: flex; align-items: center; justify-content: space-between; gap: 8px; min-height: 44px; padding: 10px 12px; color: var(--muted); background: transparent; border: 1px solid transparent; text-align: left; font-size: 13px; }
 .workspace-nav button span { font: 12px var(--mono); }
 .workspace-nav button[aria-current], .workspace-nav button:hover { color: var(--ink); background: var(--paper); border-color: var(--line); }
+.workspace-nav .dashboard-nav { color: var(--blue); background: var(--blue-soft); border-color: color-mix(in srgb, var(--blue) 28%, var(--line)); font-weight: 700; }
+.workspace-nav .dashboard-nav[aria-current], .workspace-nav .dashboard-nav:hover { color: var(--paper); background: var(--blue); border-color: var(--blue); }
 .panel-title { display: flex; align-items: center; justify-content: space-between; padding: 20px 20px 10px; }
 .panel-title small { font-size: 10px; }
 .queue-list, .history-list { display: grid; }

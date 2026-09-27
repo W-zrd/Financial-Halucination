@@ -1,3 +1,4 @@
+import { useState } from 'react'
 import './Overview.css'
 
 export type OverviewRow = {
@@ -28,57 +29,54 @@ export type OverviewData = {
   cash: number
   counts: { buy: number; hold: number; sell: number; unknown: number }
   timeline: OverviewTimelinePoint[]
+  ticker_timeline: TickerTimeline[]
   rows: OverviewRow[]
 }
 
 type OverviewTimelinePoint = { analysis_date: string; buy: number; hold: number; sell: number; unknown: number }
-const signalKeys = ['buy', 'hold', 'sell', 'unknown'] as const
-const signalLabels = ['Buy / Overweight', 'Hold', 'Underweight / Sell', 'Unknown']
+type TickerObservation = { analysis_date: string; rating: string; category: 'buy' | 'hold' | 'sell' | 'unknown'; run_id: string }
+type TickerTimeline = { ticker: string; observations: TickerObservation[] }
 
-function RatingTimeline({ timeline }: { timeline: OverviewTimelinePoint[] }) {
-  if (!timeline.length) return <section className="overview-section overview-timeline" aria-labelledby="overview-timeline-title">
-    <div className="overview-section-head"><div><span className="overview-kicker">SAVED SIGNALS / BY ANALYSIS DATE</span><h3 id="overview-timeline-title">Rating timeline</h3></div></div>
-    <p className="overview-timeline-empty">No saved analysis dates yet.</p>
-  </section>
+const categories = [
+  { key: 'buy', label: 'Buy / Overweight' },
+  { key: 'hold', label: 'Hold' },
+  { key: 'sell', label: 'Underweight / Sell' },
+  { key: 'unknown', label: 'Unknown / Other' },
+] as const
 
-  const totals = timeline.map(point => signalKeys.reduce((total, key) => total + point[key], 0))
-  const maximum = Math.max(1, ...totals)
-  const width = Math.max(420, 128 + (timeline.length - 1) * 120)
-  const left = 64
-  const right = width - 64
-  const bottom = 205
-  const top = 20
-  const x = (index: number) => left + (right - left) * index / Math.max(1, timeline.length - 1)
-  const y = (value: number) => bottom - value / maximum * (bottom - top)
-  let lower = timeline.map(() => 0)
-  const areas = signalKeys.map(key => {
-    const upper = timeline.map((point, pointIndex) => lower[pointIndex] + point[key])
-    const path = `M ${upper.map((value, pointIndex) => `${x(pointIndex)} ${y(value)}`).join(' L ')} L ${lower.map((value, pointIndex) => `${x(pointIndex)} ${y(value)}`).reverse().join(' L ')} Z`
-    const bandTop = y(upper[0])
-    const bandHeight = y(lower[0]) - bandTop
-    lower = upper
-    return timeline.length === 1
-      ? <rect key={key} className={`overview-timeline-band overview-${key}`} x={left} y={bandTop} width={right - left} height={bandHeight} />
-      : <path key={key} className={`overview-timeline-area overview-${key}`} d={path} />
-  })
-
+function RatingTimeline({ timeline, tickers, hasRuns, onOpenRun }: { timeline: OverviewTimelinePoint[]; tickers: TickerTimeline[]; hasRuns: boolean; onOpenRun: (id: string) => void }) {
+  const [chosenDate, setChosenDate] = useState('')
+  const selectedDate = timeline.some(point => point.analysis_date === chosenDate) ? chosenDate : timeline.at(-1)?.analysis_date
+  const selected = timeline.find(point => point.analysis_date === selectedDate)
+  const width = Math.max(720, 110 + (timeline.length - 1) * 82)
+  const left = 50
+  const right = width - 32
+  const top = 25
+  const bottom = 220
+  const maximum = Math.max(1, ...timeline.flatMap(point => categories.map(({ key }) => point[key])))
+  const x = (index: number) => timeline.length === 1 ? (left + right) / 2 : left + (right - left) * index / (timeline.length - 1)
+  const y = (count: number) => bottom - count / maximum * (bottom - top)
+  const selectedIndex = timeline.findIndex(point => point.analysis_date === selectedDate)
   return <section className="overview-section overview-timeline" aria-labelledby="overview-timeline-title">
-    <div className="overview-section-head"><div><span className="overview-kicker">SAVED SIGNALS / BY ANALYSIS DATE</span><h3 id="overview-timeline-title">Rating timeline</h3></div><span>Distinct tickers per date · latest saved decision per ticker/date</span></div>
-    <div className="overview-timeline-content">
-      <ul className="overview-timeline-legend" aria-label="Rating timeline legend">{signalKeys.map((key, index) => <li key={key}><span className={`overview-${key}`} aria-hidden="true" />{signalLabels[index]}</li>)}</ul>
-      <div className="overview-timeline-scroll" role="region" aria-label="Rating timeline chart (scroll horizontally for more dates)" tabIndex={0}>
-        <svg className="overview-timeline-svg" width={width} height="250" viewBox={`0 0 ${width} 250`} role="img" aria-label={`Saved rating timeline, ${timeline.length} observed date${timeline.length === 1 ? '' : 's'}; stacked ticker counts from 0 to ${maximum}. Exact counts in the table below.`}>
-          <line className="overview-timeline-axis" x1={left} x2={right} y1={bottom} y2={bottom} />
-          <line className="overview-timeline-grid" x1={left} x2={right} y1={top} y2={top} />
-          <text className="overview-timeline-axis-label" x={left - 10} y={top + 4} textAnchor="end">{maximum}</text>
-          <text className="overview-timeline-axis-label" x={left - 10} y={bottom + 4} textAnchor="end">0</text>
-          {areas}
-          {timeline.map((point, index) => <text key={point.analysis_date} className="overview-timeline-date" x={timeline.length === 1 ? (left + right) / 2 : x(index)} y={238} textAnchor="middle">{point.analysis_date}</text>)}
+    <div className="overview-section-head"><div><span className="overview-kicker">SAVED SIGNALS / BY ANALYSIS DATE</span><h3 id="overview-timeline-title">Decision count timeline</h3></div><span>Distinct stocks · latest saved decision per ticker/date</span></div>
+    {!timeline.length ? <p className="overview-timeline-empty">{hasRuns ? 'Timeline unavailable from this server. Refresh after updating the server.' : 'No saved analysis dates yet.'}</p> : <div className="overview-timeline-content">
+      <p className="overview-timeline-note">Only saved analysis dates are shown. Lines connect observed daily counts; intervening dates are not measured. Select a date to see which stocks contributed. Historical research, not live advice or holdings.</p>
+      <div className="overview-timeline-legend" aria-label="Decision series legend">{categories.map(({ key, label }) => <span key={key} className={`overview-legend-item overview-${key}`}><i aria-hidden="true" />{label}</span>)}</div>
+      <div className="overview-timeline-scroll" role="region" aria-label="Decision count chart (scroll horizontally for more dates)" tabIndex={0}>
+        <svg className="overview-timeline-svg" width={width} height="270" viewBox={`0 0 ${width} 270`} role="img" aria-label="Decision counts by analysis date; four lines for Buy, Hold, Sell and Unknown. Choose a date below for exact counts and stocks.">
+          {[0, maximum].map(value => <g key={value}><line className="overview-timeline-grid" x1={left} x2={right} y1={y(value)} y2={y(value)} /><text className="overview-timeline-axis-label" x={left - 12} y={y(value) + 4} textAnchor="end">{value}</text></g>)}
+          {selectedIndex >= 0 && <line className="overview-timeline-selected" x1={x(selectedIndex)} x2={x(selectedIndex)} y1={top} y2={bottom} />}
+          {timeline.length > 1 && <path className="overview-buy-fill" d={`M ${x(0)} ${bottom} L ${timeline.map((point, index) => `${x(index)} ${y(point.buy)}`).join(' L ')} L ${x(timeline.length - 1)} ${bottom} Z`} />}
+          {categories.map(({ key }) => <g key={key} className={`overview-${key}`}>
+            {timeline.length > 1 && <path className="overview-series" d={`M ${timeline.map((point, index) => `${x(index)} ${y(point[key])}`).join(' L ')}`} />}
+            {timeline.map((point, index) => <circle key={point.analysis_date} className="overview-series-dot" cx={x(index)} cy={y(point[key])} r="4"><title>{`${point.analysis_date}: ${key} ${point[key]}`}</title></circle>)}
+          </g>)}
+          {timeline.map((point, index) => <text className="overview-timeline-date" key={point.analysis_date} x={x(index)} y="252" textAnchor="middle">{point.analysis_date}</text>)}
         </svg>
       </div>
-      <p className="overview-timeline-note">{timeline.length === 1 ? 'One observed date shown as stacked bands; no trend implied.' : 'Observed dates are spaced evenly. Lines between dates are visual connections, not measurements.'} These are saved ratings, not holdings or live signals.</p>
-      <div className="overview-scroll" role="region" aria-label="Rating timeline data (scroll horizontally for all columns)" tabIndex={0}><table aria-label="Saved rating counts by analysis date"><thead><tr><th scope="col">Analysis date</th>{signalLabels.map(label => <th key={label} scope="col">{label}</th>)}<th scope="col">Total tickers</th></tr></thead><tbody>{timeline.map((point, index) => <tr key={point.analysis_date}><th scope="row">{point.analysis_date}</th>{signalKeys.map(key => <td key={key}>{point[key]}</td>)}<td>{totals[index]}</td></tr>)}</tbody></table></div>
-    </div>
+      <div className="overview-date-strip" role="group" aria-label="Select an analysis date">{timeline.map(point => <button key={point.analysis_date} aria-label={`Select ${point.analysis_date}`} aria-pressed={selectedDate === point.analysis_date} onClick={() => setChosenDate(point.analysis_date)}>{point.analysis_date}</button>)}</div>
+      {selected && <div className="overview-date-detail"><h4>Selected date: {selected.analysis_date}</h4>{!tickers.length && <p className="overview-timeline-note">Stock names unavailable from this server; update the backend to see contributing reports.</p>}<div className="overview-date-groups">{categories.map(({ key, label }) => <div key={key} className={`overview-date-group overview-${key}`}><strong>{label}: {selected[key]}</strong><div>{tickers.flatMap(({ ticker, observations }) => observations.filter(observation => observation.analysis_date === selectedDate && observation.category === key).map(observation => <button key={ticker} onClick={() => onOpenRun(observation.run_id)} aria-label={`Open ${ticker} report: ${observation.category === 'unknown' ? 'Unknown' : observation.rating}`}>{ticker} · {observation.category === 'unknown' ? 'Unknown' : observation.rating} ↗</button>))}</div></div>)}</div></div>}
+    </div>}
   </section>
 }
 
@@ -117,7 +115,7 @@ export default function Overview({ data, onOpenRun }: { data: OverviewData; onOp
       <p>Proposed targets from saved decisions, not current holdings or live advice. Verify current quotes, existing exposure, report conditions, and fractional-share availability before any order.</p>
     </header>
 
-    <RatingTimeline timeline={timeline ?? []} />
+    <RatingTimeline timeline={timeline ?? []} tickers={data.ticker_timeline ?? []} hasRuns={rows.length > 0} onOpenRun={onOpenRun} />
 
     <div className="overview-dashboard">
       <section className="overview-panel overview-budget" aria-labelledby="overview-budget-title">

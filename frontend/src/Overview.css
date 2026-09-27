@@ -60,23 +60,36 @@
 .overview-rating-bar.overview-unknown { background: var(--muted); }
 .overview-signal > p { margin: 17px 0 0; color: var(--muted); font-size: 11px; line-height: 1.5; }
 .overview-section { margin-top: 16px; }
-.overview-timeline-content { padding: 18px 22px 22px; }
-.overview-timeline-legend { display: flex; flex-wrap: wrap; gap: 10px 20px; padding: 0; margin: 0 0 14px; list-style: none; color: var(--ink); font: 11px var(--mono); }
-.overview-timeline-legend li { display: inline-flex; align-items: center; gap: 7px; }
-.overview-timeline-legend span { display: inline-block; width: 11px; height: 11px; }
-.overview-timeline-scroll { max-width: 100%; overflow-x: auto; background: var(--paper-alt); }
-.overview-timeline-svg { display: block; max-width: none; font: 11px var(--mono); }
-.overview-timeline-axis { stroke: var(--muted); }
+.overview-timeline-content { padding: 4px 22px 22px; }
+.overview-timeline-note, .overview-timeline-empty { margin: 12px 0; color: var(--muted); font: 11px/1.6 var(--mono); }
+.overview-timeline-empty { padding: 0 22px 10px; }
+.overview-timeline-legend { display: flex; flex-wrap: wrap; gap: 8px 18px; margin: 18px 0 12px; font: 11px var(--mono); }
+.overview-legend-item { display: inline-flex; align-items: center; gap: 7px; }
+.overview-legend-item i { width: 15px; height: 3px; background: currentColor; }
+.overview-timeline-scroll { max-width: 100%; overflow-x: auto; background: var(--paper-alt); border: 1px solid var(--line); }
+.overview-timeline-svg { display: block; max-width: none; font: 10px var(--mono); }
 .overview-timeline-grid { stroke: var(--line); stroke-dasharray: 4 4; }
+.overview-timeline-selected { stroke: var(--muted); stroke-dasharray: 3 4; }
 .overview-timeline-axis-label, .overview-timeline-date { fill: var(--muted); }
-.overview-timeline-area, .overview-timeline-band { stroke: var(--paper); stroke-width: 1; }
-.overview-timeline .overview-buy { fill: var(--green); background: var(--green); }
-.overview-timeline .overview-hold { fill: var(--blue); background: var(--blue); }
-.overview-timeline .overview-sell { fill: var(--red); background: var(--red); }
-.overview-timeline .overview-unknown { fill: var(--muted); background: var(--muted); }
-.overview-timeline-note, .overview-timeline-empty { margin: 12px 0 0; color: var(--muted); font: 11px/1.6 var(--mono); }
-.overview-timeline-empty { padding: 0 22px 22px; }
-.overview-timeline .overview-scroll { margin-top: 18px; }
+.overview-buy-fill { fill: color-mix(in srgb, var(--green) 13%, transparent); }
+.overview-series { fill: none; stroke: currentColor; stroke-width: 2.5; stroke-linejoin: round; }
+.overview-series-dot { fill: currentColor; }
+.overview-timeline .overview-buy { color: color-mix(in srgb, var(--green) 78%, var(--ink)); }
+.overview-timeline .overview-hold { color: var(--blue); }
+.overview-timeline .overview-sell { color: var(--red); }
+.overview-timeline .overview-unknown { color: var(--muted); }
+.overview-date-strip { display: flex; gap: 4px; padding: 8px 0; overflow-x: auto; }
+.overview-date-strip button { flex: none; min-height: 36px; padding: 7px 10px; border: 1px solid var(--line); color: var(--muted); background: var(--paper); font: 11px var(--mono); }
+.overview-date-strip button[aria-pressed="true"] { border-color: var(--blue); color: var(--blue); background: var(--blue-soft); }
+.overview-date-detail { padding: 14px; border: 1px solid var(--line); background: var(--paper-alt); }
+.overview-date-detail h4 { margin: 0 0 12px; font: 600 12px var(--mono); }
+.overview-date-groups { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; }
+.overview-date-group { min-width: 0; padding: 10px; border-top: 3px solid currentColor; background: var(--paper); }
+.overview-date-group strong { display: block; margin-bottom: 8px; font: 600 11px var(--mono); }
+.overview-date-group > div { display: flex; flex-wrap: wrap; gap: 5px; }
+.overview-date-group button { min-height: 40px; padding: 7px; border: 1px solid var(--line); color: var(--ink); background: var(--paper-alt); font: 11px var(--mono); }
+.overview-date-group button:hover { border-color: currentColor; }
+@media (max-width: 700px) { .overview-date-groups { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
 .overview-section-head { min-height: 68px; display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 8px 16px; padding: 14px 22px; border-bottom: 1px solid var(--line); }
 .overview-section-head .overview-kicker { display: block; margin-bottom: 6px; }
 .overview-section-head > span { text-align: right; }

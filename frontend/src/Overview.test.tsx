@@ -13,6 +13,10 @@ const data: OverviewData = {
     { analysis_date: '2026-09-23', buy: 0, hold: 1, sell: 0, unknown: 0 },
     { analysis_date: '2026-09-24', buy: 1, hold: 0, sell: 0, unknown: 0 },
   ],
+  ticker_timeline: [
+    { ticker: 'AMD', observations: [{ analysis_date: '2026-09-24', rating: 'Buy', category: 'buy', run_id: 'run-amd' }] },
+    { ticker: 'MU', observations: [{ analysis_date: '2026-09-23', rating: 'Hold', category: 'hold', run_id: 'run-mu' }] },
+  ],
   rows: [
     { id: 'run-amd', ticker: 'AMD', analysis_date: '2026-09-24', rating: 'Buy', score: 82, action: 'Conditional buy', horizon: 'Weeks', allocation: 40, entry: '$120–$125', tp1: '$135', tp2: '$145', stop_loss: '$115', risk_reward: '2:1', confidence: 'Moderate', invalidation: 'Break below support', time_stop: '30 days', risk_dollars: 3, stop_distance_pct: 7.5, rationale: 'Strong earnings', caveat: 'Volatile market' },
     { id: 'run-mu', ticker: 'MU', analysis_date: '2026-09-23', rating: 'Hold', score: null, action: '', horizon: '', allocation: 0, entry: '', tp1: '', tp2: '', stop_loss: '', risk_reward: '', confidence: '', invalidation: '', time_stop: '', risk_dollars: null, stop_distance_pct: null, rationale: '', caveat: '' },
@@ -38,7 +42,7 @@ test('renders large quantitative allocation and rating graphics with funded plan
   expect(screen.getByText('30 days')).toBeInTheDocument()
   expect(screen.getByRole('article', { name: /AMD conditional plan/i })).toHaveTextContent('$40.00')
   expect(screen.queryByRole('article', { name: /MU conditional plan/i })).not.toBeInTheDocument()
-  await userEvent.click(screen.getByRole('button', { name: /open AMD report/i }))
+  await userEvent.click(screen.getByRole('button', { name: /^Open AMD report$/i }))
   expect(onOpenRun).toHaveBeenCalledWith('run-amd')
 })
 
@@ -67,43 +71,55 @@ test('keeps long sourced levels in disclosure and surfaces their leading numbers
 })
 
 test('renders an empty overview and zero-width distribution safely', () => {
-  render(<Overview data={{ budget: 105, cash: 105, counts: { buy: 0, hold: 0, sell: 0, unknown: 0 }, timeline: [], rows: [] }} onOpenRun={vi.fn()} />)
+  render(<Overview data={{ budget: 105, cash: 105, counts: { buy: 0, hold: 0, sell: 0, unknown: 0 }, timeline: [], ticker_timeline: [], rows: [] }} onOpenRun={vi.fn()} />)
   expect(screen.getAllByText(/no completed analyses/i)).toHaveLength(1)
   expect(screen.getByRole('table', { name: /allocation/i })).toHaveTextContent('$105.00')
   expect(screen.getByRole('img', { name: /rating distribution.*buy or overweight 0.*hold 0.*underweight or sell 0.*unknown 0/i })).toBeInTheDocument()
   expect(screen.getByText('No saved analysis dates yet.')).toBeInTheDocument()
 })
 
-test('handles a stale backend response without timeline as an empty timeline', () => {
-  render(<Overview data={{ ...data, timeline: undefined } as unknown as OverviewData} onOpenRun={vi.fn()} />)
-  expect(screen.getByText('No saved analysis dates yet.')).toBeInTheDocument()
+test('does not mislabel a stale backend with saved rows as an empty history', () => {
+  render(<Overview data={{ ...data, timeline: undefined, ticker_timeline: undefined } as unknown as OverviewData} onOpenRun={vi.fn()} />)
+  expect(screen.getByText(/timeline unavailable.*server/i)).toBeInTheDocument()
 })
 
-test('plots only observed dates as stacked filled areas and retains exact daily counts', () => {
+test('plots category counts as four lines, shows selected-day stock names, and opens source', async () => {
+  const onOpenRun = vi.fn()
   render(<Overview data={{ ...data, timeline: [
-    { analysis_date: '2026-09-23', buy: 2, hold: 1, sell: 0, unknown: 1 },
-    { analysis_date: '2026-09-27', buy: 1, hold: 2, sell: 3, unknown: 0 },
-  ] }} onOpenRun={vi.fn()} />)
-  const chart = screen.getByRole('img', { name: /saved rating timeline.*2 observed dates/i })
-  const timelineSection = screen.getByRole('heading', { name: 'Rating timeline' }).closest('section')!
+    { analysis_date: '2026-09-23', buy: 0, hold: 1, sell: 0, unknown: 1 },
+    { analysis_date: '2026-09-27', buy: 1, hold: 0, sell: 1, unknown: 0 },
+  ], ticker_timeline: [
+    { ticker: 'AMD', observations: [
+      { analysis_date: '2026-09-23', rating: 'Not available', category: 'unknown', run_id: 'old-amd' },
+      { analysis_date: '2026-09-27', rating: 'Buy', category: 'buy', run_id: 'new-amd' },
+    ] },
+    { ticker: 'MU', observations: [{ analysis_date: '2026-09-23', rating: 'Hold', category: 'hold', run_id: 'run-mu' }] },
+    { ticker: 'NVDA', observations: [{ analysis_date: '2026-09-27', rating: 'Sell', category: 'sell', run_id: 'run-nvda' }] },
+  ] }} onOpenRun={onOpenRun} />)
+  const timelineSection = screen.getByRole('heading', { name: 'Decision count timeline' }).closest('section')!
   expect(timelineSection.compareDocumentPosition(screen.getByRole('heading', { name: "This month's target" })) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
-  expect(chart.querySelectorAll('path.overview-timeline-area')).toHaveLength(4)
+  const chart = within(timelineSection).getByRole('img', { name: /decision counts by analysis date/i })
+  expect(chart.querySelectorAll('path.overview-series')).toHaveLength(4)
   expect(chart).toHaveTextContent('2026-09-23')
   expect(chart).toHaveTextContent('2026-09-27')
   expect(chart).not.toHaveTextContent('2026-09-24')
-  expect(screen.getByText(/between dates are visual connections, not measurements/i)).toBeInTheDocument()
-  const table = screen.getByRole('table', { name: /saved rating counts by analysis date/i })
-  expect(Array.from(within(table).getAllByRole('row')[1].querySelectorAll('th, td'), cell => cell.textContent)).toEqual(['2026-09-23', '2', '1', '0', '1', '4'])
-  expect(Array.from(within(table).getAllByRole('row')[2].querySelectorAll('th, td'), cell => cell.textContent)).toEqual(['2026-09-27', '1', '2', '3', '0', '6'])
+  expect(within(timelineSection).getByText(/selected date: 2026-09-27/i)).toBeInTheDocument()
+  expect(within(timelineSection).getAllByText(/buy.*1/i).length).toBeGreaterThan(0)
+  expect(within(timelineSection).getByRole('button', { name: /open AMD.*Buy/i })).toBeInTheDocument()
+  expect(within(timelineSection).getByRole('button', { name: /open NVDA.*Sell/i })).toBeInTheDocument()
+  await userEvent.click(within(timelineSection).getByRole('button', { name: /select 2026-09-23/i }))
+  expect(within(timelineSection).getByText(/selected date: 2026-09-23/i)).toBeInTheDocument()
+  expect(within(timelineSection).getByRole('button', { name: /open AMD.*Unknown/i })).toBeInTheDocument()
+  expect(within(timelineSection).getByRole('button', { name: /open MU.*Hold/i })).toBeInTheDocument()
+  expect(within(timelineSection).queryByRole('button', { name: /open NVDA.*Sell/i })).not.toBeInTheDocument()
+  await userEvent.click(within(timelineSection).getByRole('button', { name: /open AMD.*Unknown/i }))
+  expect(onOpenRun).toHaveBeenCalledWith('old-amd')
 })
 
-test('shows a single observed date as bands without invented points', () => {
-  render(<Overview data={{ ...data, timeline: [{ analysis_date: '2026-09-24', buy: 1, hold: 2, sell: 0, unknown: 1 }] }} onOpenRun={vi.fn()} />)
-  const chart = screen.getByRole('img', { name: /saved rating timeline.*1 observed date/i })
-  expect(chart.querySelectorAll('rect.overview-timeline-band')).toHaveLength(4)
-  expect(chart.querySelectorAll('path.overview-timeline-area')).toHaveLength(0)
-  expect(chart).toHaveTextContent('2026-09-24')
-  expect(screen.getByText(/one observed date shown as stacked bands; no trend implied/i)).toBeInTheDocument()
-  const row = within(screen.getByRole('table', { name: /saved rating counts by analysis date/i })).getAllByRole('row')[1]
-  expect(Array.from(row.querySelectorAll('th, td'), cell => cell.textContent)).toEqual(['2026-09-24', '1', '2', '0', '1', '4'])
+test('shows a single observed date without implying a trend', () => {
+  render(<Overview data={{ ...data, timeline: [{ analysis_date: '2026-09-24', buy: 1, hold: 0, sell: 0, unknown: 0 }], ticker_timeline: [data.ticker_timeline[0]] }} onOpenRun={vi.fn()} />)
+  const chart = screen.getByRole('img', { name: /decision counts by analysis date/i })
+  expect(chart.querySelectorAll('path.overview-series')).toHaveLength(0)
+  expect(chart.querySelectorAll('circle.overview-series-dot')).toHaveLength(4)
+  expect(screen.getByText(/only saved analysis dates are shown/i)).toBeInTheDocument()
 })

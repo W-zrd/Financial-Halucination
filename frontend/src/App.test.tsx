@@ -99,6 +99,23 @@ beforeEach(() => {
   }))
 })
 
+test('lands on the highlighted dashboard after a saved session restores even with active jobs', async () => {
+  vi.mocked(fetch).mockImplementation((input: RequestInfo | URL) => {
+    const url = String(input)
+    if (url.endsWith('/api/session')) return ok({ username: 'analyst', csrf_token: 'csrf' })
+    if (url.endsWith('/api/jobs')) return ok([{ id: 'running', ticker: 'AMD', analysis_date: '2026-09-24', status: 'running' }])
+    if (url.endsWith('/api/runs')) return ok([])
+    if (url.endsWith('/api/overview')) return ok({ budget: 105, cash: 105, counts: { buy: 0, hold: 0, sell: 0, unknown: 0 }, timeline: [], ticker_timeline: [], rows: [] })
+    return ok({})
+  })
+  render(<App />)
+  expect(await screen.findByRole('heading', { name: 'Monthly allocation plan' })).toBeInTheDocument()
+  const dashboard = screen.getByRole('button', { name: /analysis dashboard/i })
+  expect(dashboard).toHaveAttribute('aria-current', 'page')
+  expect(dashboard).toHaveClass('dashboard-nav')
+  expect(screen.getByRole('button', { name: /inspect AMD/i })).toBeInTheDocument()
+})
+
 test('opens analysis dashboard from the menu using saved overview data', async () => {
   vi.mocked(fetch).mockImplementation((input: RequestInfo | URL) => {
     const url = String(input)
@@ -138,7 +155,6 @@ test('does not show a stale dashboard after a failed refresh or a superseded res
   })
   render(<App />)
   const dashboard = await screen.findByRole('button', { name: /analysis dashboard/i })
-  await userEvent.click(dashboard)
   await userEvent.click(dashboard)
   expect((await screen.findAllByText(/No completed analyses available/i)).length).toBeGreaterThan(0)
   await act(async () => { resolveFirst({ ok: true, json: async () => ({ budget: 105, cash: 0, counts: { buy: 1, hold: 0, sell: 0, unknown: 0 }, rows: [{ id: 'stale', ticker: 'STALE', allocation: 105 }] }) } as Response) })
@@ -181,6 +197,7 @@ test('clears dashboard charts when a completed run cannot refresh saved history'
 test('shows exact depth meanings and validates free-text ticker', async () => {
   render(<App />)
   expect(await screen.findByRole('heading', { name: 'Financial Halucination' })).toBeInTheDocument()
+  await userEvent.click(screen.getByRole('button', { name: /new analysis/i }))
   expect(screen.getByText('PRIVATE RESEARCH / MULTI-AGENT FINANCE')).toBeInTheDocument()
   expect(screen.getByText('Quick research, few debate and strategy discussion rounds')).toBeInTheDocument()
   expect(screen.getByText('Middle ground, moderate debate rounds and strategy discussion')).toBeInTheDocument()
@@ -405,6 +422,7 @@ test('does not reopen a deleted report from a late completed-run response', asyn
   vi.stubGlobal('EventSource', FakeEventSource)
   render(<App />)
   await screen.findByRole('button', { name: /show AMD report dates/i })
+  await userEvent.click(screen.getByRole('button', { name: /^live runs/i }))
   await act(async () => FakeEventSource.instance.onmessage?.({ data: JSON.stringify({ id: 'job-one', status: 'done', message: 'Analysis complete' }) } as MessageEvent))
   await userEvent.click(screen.getByRole('button', { name: /show AMD report dates/i }))
   await userEvent.click(screen.getByRole('button', { name: /Remove AMD 2026-09-24 report/i }))
@@ -498,6 +516,7 @@ test('opens the completed report when a live run finishes', async () => {
   vi.stubGlobal('EventSource', FakeEventSource)
 
   render(<App />)
+  await userEvent.click(await screen.findByRole('button', { name: /new analysis/i }))
   await screen.findByRole('button', { name: /run analysis/i })
   await userEvent.click(screen.getByRole('button', { name: /run analysis/i }))
   expect(await screen.findByText('FINAL RATING')).toBeInTheDocument()
@@ -546,6 +565,7 @@ test('focuses one run at a time and reveals setup only when requested', async ()
   vi.stubGlobal('EventSource', IdleEventSource)
 
   render(<App />)
+  await userEvent.click(await screen.findByRole('button', { name: /new analysis/i }))
   const start = await screen.findByRole('button', { name: /run analysis/i })
   await userEvent.click(start)
   expect(screen.queryByRole('button', { name: /run analysis/i })).not.toBeInTheDocument()
@@ -577,6 +597,7 @@ test('force stop calls the cancel API with CSRF and marks the run cancelled', as
   vi.stubGlobal('EventSource', IdleEventSource)
 
   render(<App />)
+  await userEvent.click(await screen.findByRole('button', { name: /new analysis/i }))
   await userEvent.click(await screen.findByRole('button', { name: /run analysis/i }))
   await userEvent.click(await screen.findByRole('button', { name: /stop AMD analysis/i }))
 
@@ -608,6 +629,7 @@ test('keeps SSE open for native reconnect and shows production event fields', as
   })
 
   render(<App />)
+  await userEvent.click(await screen.findByRole('button', { name: /new analysis/i }))
   await userEvent.click(await screen.findByRole('button', { name: /run analysis/i }))
   act(() => LiveEventSource.instance.emit({ id: 'job-live', status: 'running', elapsed_seconds: 2, type: 'agent', message: 'Bull Researcher: Building the growth case' }, '0'))
   expect(screen.getByRole('log', { name: /AMD live activity/i })).toBeInTheDocument()
@@ -651,6 +673,7 @@ test('restores active jobs and reconnects their live streams on load', async () 
 
   render(<App />)
 
+  await userEvent.click(await screen.findByRole('button', { name: /^live runs/i }))
   expect(await screen.findByRole('heading', { name: /AVGO analysis/i })).toBeInTheDocument()
   expect(screen.getByText('LLM model: glm-5.3-flash', { selector: '.job-model' })).toBeInTheDocument()
   expect(screen.getByRole('button', { name: /inspect MU/i })).toBeInTheDocument()
@@ -683,6 +706,7 @@ test('restores active jobs immediately after signing in', async () => {
   await userEvent.type(screen.getByLabelText('Password'), 'secret')
   await userEvent.click(screen.getByRole('button', { name: /sign in/i }))
 
+  await userEvent.click(await screen.findByRole('button', { name: /^live runs/i }))
   expect(await screen.findByRole('heading', { name: /PANW analysis/i })).toBeInTheDocument()
   expect(opened).toContain('/api/runs/after-login/events')
 })
@@ -700,6 +724,7 @@ test('loads authenticated models, selects the server default and posts the exact
   class IdleEventSource { close() {} }
   vi.stubGlobal('EventSource', IdleEventSource)
   render(<App />)
+  await userEvent.click(await screen.findByRole('button', { name: /new analysis/i }))
   const start = await screen.findByRole('button', { name: /run analysis/i })
   expect(start).toBeDisabled()
   expect(fetch).toHaveBeenCalledWith('/api/models', expect.anything())
@@ -722,10 +747,12 @@ test('requires a choice without a valid server default and permits retry after m
     const url = String(input)
     if (url.endsWith('/api/session')) return ok({ username: 'analyst', csrf_token: 'csrf' })
     if (url.endsWith('/api/models')) return ++reads === 1 ? ok({ detail: 'Unavailable' }, 503) : ok({ models: ['qwen3.8-max'], default_model: null })
+    if (url.endsWith('/api/overview')) return ok({ budget: 105, cash: 105, counts: { buy: 0, hold: 0, sell: 0, unknown: 0 }, timeline: [], ticker_timeline: [], rows: [] })
     if (url.endsWith('/api/runs')) return ok([])
     return ok({})
   })
   render(<App />)
+  await userEvent.click(await screen.findByRole('button', { name: /new analysis/i }))
   const start = await screen.findByRole('button', { name: /run analysis/i })
   expect(start).toBeDisabled()
   expect(await screen.findByRole('alert')).toHaveTextContent('Unavailable')

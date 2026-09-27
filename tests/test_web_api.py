@@ -102,6 +102,7 @@ def test_remove_run_requires_csrf_and_preserves_files_and_sibling_dates(tmp_path
         assert client.get("/api/overview").json()["timeline"] == [
             {"analysis_date": "2026-09-23", "buy": 0, "hold": 1, "sell": 0, "unknown": 0}
         ]
+        assert [row["ticker"] for row in client.get("/api/overview").json()["ticker_timeline"]] == ["AMD"]
         assert client.delete(
             f"/api/runs/{target['id']}", headers={"X-CSRF-Token": csrf}
         ).status_code == 404
@@ -228,10 +229,22 @@ def test_timeline_uses_analysis_date_and_deduplicates_latest_ticker_day(tmp_path
 
     with _client(tmp_path, monkeypatch) as client:
         _login(client)
-        timeline = client.get("/api/overview").json()["timeline"]
-        assert timeline == [
+        overview = client.get("/api/overview").json()
+        assert overview["timeline"] == [
             {"analysis_date": "2026-09-22", "buy": 0, "hold": 1, "sell": 0, "unknown": 0},
             {"analysis_date": "2026-09-23", "buy": 1, "hold": 0, "sell": 1, "unknown": 1},
+        ]
+        assert overview["ticker_timeline"] == [
+            {"ticker": "AAA", "observations": [
+                {"analysis_date": "2026-09-22", "rating": "Hold", "category": "hold", "run_id": next(r["id"] for r in client.get("/api/runs").json() if r["ticker"] == "AAA" and r["analysis_date"] == "2026-09-22")},
+                {"analysis_date": "2026-09-23", "rating": "Buy", "category": "buy", "run_id": next(r["id"] for r in client.get("/api/runs").json() if r["ticker"] == "AAA" and r["analysis_date"] == "2026-09-23" and r["rating"] == "Buy")},
+            ]},
+            {"ticker": "BBB", "observations": [
+                {"analysis_date": "2026-09-23", "rating": "Underweight", "category": "sell", "run_id": next(r["id"] for r in client.get("/api/runs").json() if r["ticker"] == "BBB")},
+            ]},
+            {"ticker": "CCC", "observations": [
+                {"analysis_date": "2026-09-23", "rating": "Not available", "category": "unknown", "run_id": next(r["id"] for r in client.get("/api/runs").json() if r["ticker"] == "CCC")},
+            ]},
         ]
 
 
