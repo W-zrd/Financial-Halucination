@@ -1,1 +1,0 @@
-I'll gather the data needed for the CRWD analysis: company news, global news, macro indicators, and prediction market probabilities. All of these are independent, so I'll fetch them in parallel.

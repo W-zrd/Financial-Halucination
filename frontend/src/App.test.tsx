@@ -97,7 +97,7 @@ test('clears dashboard charts when a completed run cannot refresh saved history'
 
 test('shows exact depth meanings and validates free-text ticker', async () => {
   render(<App />)
-  expect(await screen.findByText('TradingAgents')).toBeInTheDocument()
+  expect(await screen.findByRole('heading', { name: 'Financial Halucination' })).toBeInTheDocument()
   expect(screen.getByText('PRIVATE RESEARCH / MULTI-AGENT FINANCE')).toBeInTheDocument()
   expect(screen.getByText('Quick research, few debate and strategy discussion rounds')).toBeInTheDocument()
   expect(screen.getByText('Middle ground, moderate debate rounds and strategy discussion')).toBeInTheDocument()
@@ -225,6 +225,32 @@ test('distinguishes a same-date rerun in the history removal confirmation', asyn
   await userEvent.click(screen.getByRole('button', { name: /Remove AMD 2026-09-24 2026-09-24T11:00:00Z report/i }))
   expect(confirm).toHaveBeenCalledWith(expect.stringContaining('2026-09-24T11:00:00Z'))
   confirm.mockRestore()
+})
+
+test('shows long same-date rerun metadata, depth, verdict and separate remove actions', async () => {
+  const timestamp = '2026-09-24T11:00:00.123456789+07:00'
+  vi.mocked(fetch).mockImplementation((input: RequestInfo | URL) => {
+    if (String(input).endsWith('/api/session')) return ok({ username: 'analyst', csrf_token: 'csrf' })
+    if (String(input).endsWith('/api/runs')) return ok([
+      { id: 'older', ticker: 'AMD', analysis_date: '2026-09-24', depth: 1, status: 'done', rating: 'Hold', created_at: '2026-09-24T10:00:00Z' },
+      { id: 'newer', ticker: 'AMD', analysis_date: '2026-09-24', depth: 5, status: 'done', rating: 'Strong Buy', created_at: timestamp },
+    ])
+    return ok({})
+  })
+  render(<App />)
+  await userEvent.click(await screen.findByRole('button', { name: /show AMD report dates/i }))
+  const open = screen.getByRole('button', { name: `Open AMD 2026-09-24 ${timestamp} report` })
+  expect(open.querySelector('time')).toHaveTextContent('2026-09-24')
+  expect(open.querySelector('.history-created')).toHaveTextContent(timestamp)
+  expect(open.querySelector('.history-depth')).toHaveTextContent('D5')
+  expect(open.querySelector('.rating')).toHaveTextContent('Strong Buy')
+  expect(screen.getByRole('button', { name: `Remove AMD 2026-09-24 ${timestamp} report` })).toHaveAttribute('title', 'Remove this saved analysis')
+})
+
+test('uses Financial Halucination on login', async () => {
+  vi.mocked(fetch).mockImplementation(() => Promise.resolve(new Response(null, { status: 401 })))
+  render(<App />)
+  expect(await screen.findByRole('heading', { name: 'Financial Halucination' })).toBeInTheDocument()
 })
 
 test('keeps deleted history absent when overlapping refreshes resolve out of order', async () => {

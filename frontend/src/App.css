@@ -103,15 +103,15 @@ input:hover { border-color: var(--muted); }
 .history-row { min-width: 0; display: grid; grid-template-columns: minmax(0, 1fr) 44px; align-items: stretch; border-bottom: 1px solid var(--line); }
 .history-row:last-child { border-bottom: 0; }
 .history-row.selected { background: var(--blue-soft); outline: 1px solid var(--blue); outline-offset: -1px; }
-.history-open { min-width: 0; min-height: 54px; display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 9px 8px 9px 20px; color: var(--ink); background: transparent; border: 0; text-align: left; }
+.history-open { min-width: 0; min-height: 54px; display: grid; align-content: center; gap: 4px; padding: 9px 8px 9px 20px; color: var(--ink); background: transparent; border: 0; text-align: left; }
 .history-open:hover, .history-remove:hover { background: var(--surface-hover); }
-.history-open > span { min-width: 0; display: grid; gap: 3px; }
-.history-open b { font: 500 10px var(--mono); }
-.history-open small { color: var(--muted); font: 9px/1.4 var(--mono); }
+.history-open time { font: 500 11px var(--mono); }
+.history-open small { min-width: 0; color: var(--muted); font: 10px/1.4 var(--mono); }
+.history-created { overflow-wrap: anywhere; }
 .history-remove { width: 44px; min-height: 44px; color: var(--muted); background: transparent; border: 0; font: 18px var(--mono); }
 .history-remove:hover { color: var(--red); }
 .rating { font-style: normal; }
-.history-row .rating { flex: none; overflow-wrap: anywhere; text-align: right; font: 500 10px/1.4 var(--mono); }
+.history-row .rating { min-width: 0; overflow-wrap: anywhere; text-align: left; font: 500 11px/1.4 var(--mono); }
 .rating.buy, .rating.overweight, .rating.outperform { color: var(--green); }
 .rating.sell, .rating.underweight, .rating.underperform { color: var(--red); }
 .sidebar-note { padding: 18px 20px; color: var(--muted); font: 10px/1.8 var(--mono); }
@@ -219,10 +219,13 @@ legend { margin-bottom: 12px; color: var(--muted); font: 12px var(--mono); }
   html { scroll-padding-top: 130px; }
   .topbar { height: 60px; padding: 0 16px; }
   .brand .eyebrow, .session > span { display: none; }
-  .brand h1 { font-size: 19px; }
+  .brand { min-width: 0; gap: 8px; }
+  .brand-mark { flex: none; }
+  .brand h1 { font-size: 17px; line-height: 1.1; }
+  .session { flex: none; }
   .workspace { display: block; }
   .command-sidebar { position: sticky; top: 60px; z-index: 15; height: auto; overflow: visible; border: 0; background: var(--canvas); }
-  .workspace-nav { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 4px; padding: 6px 8px; background: var(--canvas); }
+  .workspace-nav { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 4px; padding: 6px 8px; background: var(--canvas); }
   .workspace-nav button { padding: 8px; font-size: 12px; }
   .workspace-nav button span { font-size: 10px; }
   .queue-panel, .history, .sidebar-note { display: none; }

@@ -91,7 +91,7 @@ function Login({ onLogin }: { onLogin: (session: Session) => void }) {
     <form className="login-card" onSubmit={submit}>
       <div className="brand-mark"><BrandIcon /></div>
       <div className="eyebrow">PRIVATE ANALYSIS NODE</div>
-      <h1>TradingAgents</h1>
+      <h1>Financial Halucination</h1>
       <p>Sign in to the research console.</p>
       <label>Username<input autoComplete="username" value={username} onChange={event => setUsername(event.target.value)} required /></label>
       <label>Password<input type="password" autoComplete="current-password" value={password} onChange={event => setPassword(event.target.value)} required /></label>
@@ -386,7 +386,7 @@ export default function App() {
     <header className="topbar">
       <div className="brand">
         <div className="brand-mark"><BrandIcon /></div>
-        <div><div className="eyebrow">PRIVATE RESEARCH / MULTI-AGENT FINANCE</div><h1>TradingAgents</h1></div>
+        <div><div className="eyebrow">PRIVATE RESEARCH / MULTI-AGENT FINANCE</div><h1>Financial Halucination</h1></div>
       </div>
       <div className="session"><span className="status-dot" aria-hidden="true" /><span>{session.username}</span><button className="ghost" onClick={logout}>Sign out</button></div>
     </header>
@@ -416,7 +416,9 @@ export default function App() {
               const descriptor = repeatedDate ? `${run.analysis_date} ${run.created_at || run.id}` : run.analysis_date
               return <div className={selected?.id === run.id && view === 'reports' ? 'history-row selected' : 'history-row'} key={run.id}>
               <button className="history-open" disabled={removing.includes(run.id)} onClick={() => openRun(run)} aria-label={`Open ${name} ${descriptor} report`} aria-pressed={selected?.id === run.id && view === 'reports'}>
-                <span><b>{run.analysis_date}</b><small>{repeatedDate ? `${run.created_at || run.id} · ` : ''}{depths.some(item => String(item.value) === String(run.depth)) ? `D${run.depth}` : 'Depth not available'}</small></span>
+                <time dateTime={run.analysis_date}>{run.analysis_date}</time>
+                {repeatedDate && <small className="history-created">{run.created_at || run.id}</small>}
+                <small className="history-depth">{depths.some(item => String(item.value) === String(run.depth)) ? `D${run.depth}` : 'Depth not available'}</small>
                 <em className={`rating ${String(run.rating).toLowerCase()}`}>{run.rating || 'Not available'}</em>
               </button>
               <button className="history-remove" disabled={removing.includes(run.id)} onClick={() => removeRun(run, descriptor)} aria-label={`Remove ${name} ${descriptor} report`} title="Remove this saved analysis">×</button>

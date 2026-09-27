@@ -94,7 +94,7 @@ def create_app(results_dir: Path | None = None, executor=None, frontend_dist: Pa
         yield
         manager.stop()
 
-    app = FastAPI(title="TradingAgents Web", docs_url=None, redoc_url=None, lifespan=lifespan)
+    app = FastAPI(title="Financial Halucination", docs_url=None, redoc_url=None, lifespan=lifespan)
     app.state.manager = manager
 
     def session(request: Request) -> dict:
