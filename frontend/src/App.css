@@ -85,7 +85,7 @@ input:hover, select:hover { border-color: var(--muted); }
 .workspace-nav .dashboard-nav[aria-current], .workspace-nav .dashboard-nav:hover { color: var(--paper); background: var(--blue); border-color: var(--blue); }
 .panel-title { display: flex; align-items: center; justify-content: space-between; padding: 20px 20px 10px; }
 .panel-title small { font-size: 10px; }
-.queue-list, .history-list { display: grid; }
+.queue-list { display: grid; }
 .queue-row { width: 100%; min-width: 0; padding: 13px 20px; color: var(--ink); border: 0; border-bottom: 1px solid var(--line); background: transparent; text-align: left; }
 .queue-row:hover { background: var(--surface-hover); }
 .queue-row.selected { background: var(--blue-soft); outline: 1px solid var(--blue); outline-offset: -1px; }
@@ -94,14 +94,26 @@ input:hover, select:hover { border-color: var(--muted); }
 .queue-row em { color: var(--blue); font: normal 10px var(--mono); text-transform: uppercase; }
 .queue-row small { display: block; color: var(--muted); font: 10px/1.5 var(--mono); margin-top: 5px; }
 .queue-preview { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.ticker-group { border-bottom: 1px solid var(--line); }
-.ticker-toggle { width: 100%; min-height: 48px; display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 11px 20px; color: var(--ink); background: transparent; border: 0; text-align: left; }
+.history { border: 1px solid var(--line); background: var(--paper); }
+.history-summary { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); border-bottom: 1px solid var(--line); }
+.history-summary > div { display: grid; align-content: center; gap: 4px; min-height: 88px; padding: 16px 20px; color: var(--muted); border-right: 1px solid var(--line); font: 11px var(--mono); }
+.history-summary > div:last-child { border-right: 0; }
+.history-summary strong { color: var(--ink); font: 500 28px 'Space Grotesk', sans-serif; }
+.history-chart { display: grid; gap: 10px; max-height: 220px; overflow-y: auto; padding: 18px 20px; background: var(--paper-alt); border-bottom: 1px solid var(--line); }
+.history-bar-row { display: grid; grid-template-columns: minmax(50px, 90px) minmax(0, 1fr) 28px; align-items: center; gap: 12px; font: 11px var(--mono); }
+.history-bar-row > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.history-bar-row b { font-weight: 500; text-align: right; }
+.history-bar-track { height: 10px; background: var(--paper); border: 1px solid var(--line); }
+.history-bar-track span { display: block; height: 100%; background: var(--blue); }
+.history-list { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 300px), 1fr)); align-items: start; max-height: 520px; overflow-y: auto; }
+.ticker-group { min-width: 0; border-right: 1px solid var(--line); border-bottom: 1px solid var(--line); }
+.ticker-toggle { width: 100%; min-height: 56px; display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 11px 20px; color: var(--ink); background: transparent; border: 0; text-align: left; }
 .ticker-toggle:hover { background: var(--surface-hover); }
 .ticker-toggle b { font-size: 14px; font-weight: 500; }
-.ticker-toggle span { min-width: 23px; padding: 3px 6px; color: var(--muted); border: 1px solid var(--line); text-align: center; font: 9px var(--mono); }
+.ticker-toggle span { color: var(--muted); text-align: right; font: 10px var(--mono); }
 .ticker-group.expanded .ticker-toggle { color: var(--blue); background: var(--paper); }
 .ticker-group.expanded .ticker-toggle span { color: var(--blue); border-color: var(--blue); }
-.ticker-dates { border-top: 1px solid var(--line); background: var(--paper); }
+.ticker-dates { max-height: 340px; overflow-y: auto; border-top: 1px solid var(--line); background: var(--paper); }
 .history-row { min-width: 0; display: grid; grid-template-columns: minmax(0, 1fr) 44px; align-items: stretch; border-bottom: 1px solid var(--line); }
 .history-row:last-child { border-bottom: 0; }
 .history-row.selected { background: var(--blue-soft); outline: 1px solid var(--blue); outline-offset: -1px; }
@@ -114,6 +126,8 @@ input:hover, select:hover { border-color: var(--muted); }
 .history-remove:hover { color: var(--red); }
 .rating { font-style: normal; }
 .history-row .rating { min-width: 0; overflow-wrap: anywhere; text-align: left; font: 500 11px/1.4 var(--mono); }
+.history-prompt { padding: 20px; color: var(--muted); background: var(--paper-alt); border: 1px solid var(--line); border-top: 0; font-size: 13px; }
+.report-reader { margin-top: 32px; scroll-margin-top: 86px; }
 .rating.buy, .rating.overweight, .rating.outperform { color: var(--green); }
 .rating.sell, .rating.underweight, .rating.underperform { color: var(--red); }
 .sidebar-note { padding: 18px 20px; color: var(--muted); font: 10px/1.8 var(--mono); }
@@ -254,15 +268,17 @@ legend { margin-bottom: 12px; color: var(--muted); font: 12px var(--mono); }
   .workspace-nav { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 4px; padding: 6px 8px; background: var(--canvas); }
   .workspace-nav button { padding: 8px; font-size: 12px; }
   .workspace-nav button span { font-size: 10px; }
-  .queue-panel, .history, .sidebar-note { display: none; }
-  .view-jobs .queue-panel, .view-reports .history { display: block; border-bottom: 1px solid var(--line); background: var(--paper-alt); }
-  .queue-panel .panel-title, .history .panel-title { display: none; }
+  .queue-panel, .sidebar-note { display: none; }
+  .view-jobs .queue-panel { display: block; border-bottom: 1px solid var(--line); background: var(--paper-alt); }
+  .queue-panel .panel-title { display: none; }
   .queue-list { display: flex; overflow-x: auto; max-height: 98px; padding: 8px; gap: 6px; }
-  .history-list { max-height: 260px; overflow-y: auto; padding: 8px; }
   .queue-row { flex: 0 0 220px; padding: 10px 12px; border: 1px solid var(--line); }
   .queue-preview { display: none !important; }
-  .ticker-group { border: 1px solid var(--line); border-bottom: 0; }
-  .ticker-group:last-child { border-bottom: 1px solid var(--line); }
+  .history-summary > div { padding: 12px; min-height: 74px; }
+  .history-summary strong { font-size: 22px; }
+  .history-chart { padding: 14px 12px; }
+  .report-reader { scroll-margin-top: 174px; }
+  .ticker-group { border-right: 0; }
   .command-panel, .active-runs, .report-area { padding: 24px 16px; }
   .output-bar { padding: 0 16px; min-height: 38px; font-size: 9px; }
   .output-bar > span:last-child { display: none; }

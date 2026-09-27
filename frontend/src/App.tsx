@@ -147,6 +147,12 @@ export default function App() {
         right.analysis_date.localeCompare(left.analysis_date) || right.created_at.localeCompare(left.created_at)
       )] as const)
   }, [runs])
+  const maxTickerRuns = Math.max(1, ...groupedRuns.map(([, items]) => items.length))
+  const analysisDateCount = new Set(runs.map(run => run.analysis_date).filter(Boolean)).size
+
+  useEffect(() => {
+    if (view === 'reports' && selected) document.getElementById('saved-report-reader')?.scrollIntoView?.({ block: 'start' })
+  }, [selected])
 
   async function loadOverview() {
     const request = ++overviewRequest.current
@@ -437,25 +443,6 @@ export default function App() {
             <small className="queue-preview">{!terminalStatuses.has(job.status) && job.connection !== 'live' ? `${job.connection || 'connecting'} · last known state` : job.events.at(-1)?.message || 'Waiting for agent output'}</small>
           </button>) : <p className="empty">No runs in this session.</p>}</div>
         </section>
-        <section className="history" aria-label="Saved reports">
-          <div className="panel-title">RUN HISTORY <small>{runs.length}</small></div>
-          <div className="history-list" aria-label="Analysis run history">{groupedRuns.length ? groupedRuns.map(([name, tickerRuns]) => <div className={`ticker-group ${expandedTicker === name ? 'expanded' : ''}`} key={name}>
-            <button className="ticker-toggle" aria-label={`Show ${name} report dates`} aria-expanded={expandedTicker === name} onClick={() => setExpandedTicker(current => current === name ? '' : name)}><b>{name}</b><span>{tickerRuns.length}</span></button>
-            {expandedTicker === name && <div className="ticker-dates">{tickerRuns.map(run => {
-              const repeatedDate = tickerRuns.some(item => item !== run && item.analysis_date === run.analysis_date)
-              const descriptor = repeatedDate ? `${run.analysis_date} ${run.created_at || run.id}` : run.analysis_date
-              return <div className={selected?.id === run.id && view === 'reports' ? 'history-row selected' : 'history-row'} key={run.id}>
-              <button className="history-open" disabled={removing.includes(run.id)} onClick={() => openRun(run)} aria-label={`Open ${name} ${descriptor} report`} aria-pressed={selected?.id === run.id && view === 'reports'}>
-                <time dateTime={run.analysis_date}>{run.analysis_date}</time>
-                {repeatedDate && <small className="history-created">{run.created_at || run.id}</small>}
-                <small className="history-depth">{depths.some(item => String(item.value) === String(run.depth)) ? `D${run.depth}` : 'Depth not available'}</small>
-                <small className="history-model">LLM model: {run.llm_model || 'Not available'}</small>
-                <em className={`rating ${String(run.rating).toLowerCase()}`}>{run.rating || 'Not available'}</em>
-              </button>
-              <button className="history-remove" disabled={removing.includes(run.id)} onClick={() => removeRun(run, descriptor)} aria-label={`Remove ${name} ${descriptor} report`} title="Remove this saved analysis">×</button>
-            </div>})}</div>}
-          </div>) : <p className="empty">No completed runs.</p>}</div>
-        </section>
         <p className="sidebar-note">Research, not financial advice.<br />Review the evidence before acting.</p>
       </aside>
 
@@ -491,10 +478,41 @@ export default function App() {
             {focusedJob.status === 'done' && <button className="open-report" onClick={() => openRun({ id: focusedJob.id })}>Open completed report →</button>}
           </> : <p className="empty">No live runs. Start a new analysis to see agent activity here.</p>}
         </section>}
-        {view === 'reports' && (selected ? <section className="report-area">
-          <div className="report-toolbar"><div><span className="section-number">03 / READ</span><span>{selected.ticker} · SAVED REPORT</span></div><button className="ghost" onClick={() => setRaw(!raw)}>{raw ? 'Rendered view' : 'Raw view'}</button></div>
-          <Report run={selected} raw={raw} />
-        </section> : <section className="welcome"><span className="eyebrow">REPORT LIBRARY</span><h2>Read the research</h2><p>Select a saved run to review the verdict, analyst evidence, and downloadable reports.</p></section>)}
+        {view === 'reports' && <section className="report-area" aria-label="Saved reports workspace">
+          <div className="section-title"><div><span className="section-number">03 / TRACK</span><h2>Saved reports</h2></div><p>Browse each ticker's analysis dates and compare saved decisions. Counts reflect saved runs, including reruns.</p></div>
+          <section className="history" aria-label="Analysis run history">
+            <div className="history-summary">
+              <div><strong>{runs.length}</strong> saved analyses</div>
+              <div><strong>{groupedRuns.length}</strong> tickers</div>
+              <div><strong>{analysisDateCount}</strong> analysis dates</div>
+            </div>
+            {groupedRuns.length > 0 && <div className="history-chart" role="img" aria-label="Saved analyses per ticker">
+              {groupedRuns.map(([name, tickerRuns]) => <div className="history-bar-row" key={name}><span>{name}</span><div className="history-bar-track"><span style={{ width: `${tickerRuns.length / maxTickerRuns * 100}%` }} /></div><b>{tickerRuns.length}</b></div>)}
+            </div>}
+            <div className="history-list">{groupedRuns.length ? groupedRuns.map(([name, tickerRuns]) => {
+              const dates = new Set(tickerRuns.map(run => run.analysis_date).filter(Boolean)).size
+              return <div className={`ticker-group ${expandedTicker === name ? 'expanded' : ''}`} key={name}>
+            <button className="ticker-toggle" aria-label={`Show ${name} report dates`} aria-expanded={expandedTicker === name} onClick={() => setExpandedTicker(current => current === name ? '' : name)}><b>{name}</b><span>{tickerRuns.length} {tickerRuns.length === 1 ? 'analysis' : 'analyses'} · {dates} {dates === 1 ? 'date' : 'dates'}</span></button>
+              {expandedTicker === name && <div className="ticker-dates">{tickerRuns.map(run => {
+                const repeatedDate = tickerRuns.some(item => item !== run && item.analysis_date === run.analysis_date)
+                const descriptor = repeatedDate ? `${run.analysis_date} ${run.created_at || run.id}` : run.analysis_date
+                return <div className={selected?.id === run.id ? 'history-row selected' : 'history-row'} key={run.id}>
+                <button className="history-open" disabled={removing.includes(run.id)} onClick={() => openRun(run)} aria-label={`Open ${name} ${descriptor} report`} aria-pressed={selected?.id === run.id}>
+                  <time dateTime={run.analysis_date}>{run.analysis_date || 'Date not available'}</time>
+                  {repeatedDate && <small className="history-created">{run.created_at || run.id}</small>}
+                  <small className="history-depth">{depths.some(item => String(item.value) === String(run.depth)) ? `D${run.depth}` : 'Depth not available'}</small>
+                  <small className="history-model">LLM model: {run.llm_model || 'Not available'}</small>
+                  <em className={`rating ${String(run.rating).toLowerCase()}`}>{run.rating || 'Not available'}</em>
+                </button>
+                <button className="history-remove" disabled={removing.includes(run.id)} onClick={() => removeRun(run, descriptor)} aria-label={`Remove ${name} ${descriptor} report`} title="Remove this saved analysis">×</button>
+              </div>})}</div>}
+            </div>}) : <p className="empty">No completed runs.</p>}</div>
+          </section>
+          {selected ? <div className="report-reader" id="saved-report-reader">
+            <div className="report-toolbar"><div><span className="section-number">04 / READ</span><span>{selected.ticker} · {selected.analysis_date || 'Date not available'} · SAVED REPORT</span></div><button className="ghost" onClick={() => setRaw(!raw)}>{raw ? 'Rendered view' : 'Raw view'}</button></div>
+            <Report run={selected} raw={raw} />
+          </div> : <p className="history-prompt">Select a ticker and date to read its saved report.</p>}
+        </section>}
       </main>
     </div>
   </div>

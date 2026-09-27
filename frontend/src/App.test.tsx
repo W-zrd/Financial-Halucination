@@ -15,10 +15,45 @@ async function openVisualReport(sections: Record<string, string>) {
     return ok({})
   })
   render(<App />)
+  await userEvent.click(await screen.findByRole('button', { name: /saved reports/i }))
   await userEvent.click(await screen.findByRole('button', { name: /show NVDA report dates/i }))
   await userEvent.click(screen.getByRole('button', { name: /open NVDA/i }))
   await screen.findByText('FINAL RATING')
 }
+
+test('keeps history off the navigation rail and tracks ticker counts and separate dates in saved reports', async () => {
+  vi.mocked(fetch).mockImplementation((input: RequestInfo | URL) => {
+    const url = String(input)
+    if (url.endsWith('/api/session')) return ok({ username: 'analyst', csrf_token: 'csrf' })
+    if (url.endsWith('/api/runs')) return ok([
+      { id: 'amd-old', ticker: 'AMD', analysis_date: '2026-09-24', depth: 1, status: 'done', rating: 'Hold', created_at: '2026-09-24T10:00:00Z' },
+      { id: 'amd-new', ticker: 'AMD', analysis_date: '2026-09-25', depth: 3, status: 'done', rating: 'Buy', created_at: '2026-09-25T10:00:00Z' },
+      { id: 'mu', ticker: 'MU', analysis_date: '2026-09-25', depth: 3, status: 'done', rating: 'Sell', created_at: '2026-09-25T11:00:00Z' },
+    ])
+    if (url.endsWith('/api/runs/amd-old')) return ok({ id: 'amd-old', ticker: 'AMD', analysis_date: '2026-09-24', rating: 'Hold', sections: { market_report: 'Older evidence' } })
+    return ok({})
+  })
+  render(<App />)
+  expect(await screen.findByRole('button', { name: /saved reports/i })).toBeInTheDocument()
+  expect(screen.getByRole('complementary', { name: 'Workspace navigation' })).not.toHaveTextContent('RUN HISTORY')
+  expect(screen.queryByRole('region', { name: 'Analysis run history' })).not.toBeInTheDocument()
+  await userEvent.click(screen.getByRole('button', { name: /saved reports/i }))
+  const library = screen.getByRole('region', { name: 'Analysis run history' })
+  expect(library).toHaveTextContent('3 saved analyses')
+  expect(library).toHaveTextContent('2 tickers')
+  expect(library).toHaveTextContent('2 analysis dates')
+  const chart = screen.getByRole('img', { name: /saved analyses per ticker/i })
+  expect(chart).toHaveTextContent('AMD')
+  expect(chart).toHaveTextContent('MU')
+  expect(chart).toHaveTextContent('2')
+  await userEvent.click(screen.getByRole('button', { name: /show AMD report dates/i }))
+  expect(screen.getAllByRole('button', { name: /open AMD/i }).map(button => button.getAttribute('aria-label'))).toEqual([
+    'Open AMD 2026-09-25 report', 'Open AMD 2026-09-24 report',
+  ])
+  await userEvent.click(screen.getByRole('button', { name: 'Open AMD 2026-09-24 report' }))
+  expect(await screen.findByText('Older evidence')).toBeInTheDocument()
+  expect(library).toBeInTheDocument()
+})
 
 test('charts explicit market scenarios and numeric sentiment above report text without invented odds', async () => {
   await openVisualReport({
@@ -218,6 +253,7 @@ test('renders real rating vocabulary and markdown without raw html', async () =>
     return ok({})
   })
   render(<App />)
+  await userEvent.click(await screen.findByRole('button', { name: /saved reports/i }))
   await userEvent.click(await screen.findByRole('button', { name: /show AMD report dates/i }))
   expect(await screen.findByText('Overweight')).toBeInTheDocument()
   expect(screen.getByText(/Depth not available/)).toBeInTheDocument()
@@ -241,8 +277,10 @@ test('groups saved runs by alphabetized ticker and reveals dates on tap', async 
   })
 
   render(<App />)
+  await userEvent.click(await screen.findByRole('button', { name: /saved reports/i }))
   const groups = await screen.findAllByRole('button', { name: /show .* report dates/i })
-  expect(groups.map(group => group.textContent)).toEqual(['AMD1', 'TSM2'])
+  expect(groups.map(group => group.querySelector('b')?.textContent)).toEqual(['AMD', 'TSM'])
+  expect(groups.map(group => group.querySelector('span')?.textContent)).toEqual(['1 analysis · 1 date', '2 analyses · 2 dates'])
   expect(screen.queryByRole('button', { name: /open TSM 2026-09-24/i })).not.toBeInTheDocument()
 
   await userEvent.click(screen.getByRole('button', { name: /show TSM report dates/i }))
@@ -268,6 +306,7 @@ test('removes only the selected ticker date after confirmation', async () => {
   })
 
   render(<App />)
+  await userEvent.click(await screen.findByRole('button', { name: /saved reports/i }))
   await userEvent.click(await screen.findByRole('button', { name: /show AMD report dates/i }))
   await userEvent.click(screen.getByRole('button', { name: /remove AMD 2026-09-24 report/i }))
 
@@ -296,6 +335,7 @@ test('disambiguates same-date reruns and keeps newer selection during pending de
     return ok({})
   })
   render(<App />)
+  await userEvent.click(await screen.findByRole('button', { name: /saved reports/i }))
   await userEvent.click(await screen.findByRole('button', { name: /show AMD report dates/i }))
   const removes = screen.getAllByRole('button', { name: /remove AMD 2026-09-24/i })
   expect(new Set(removes.map(button => button.getAttribute('aria-label'))).size).toBe(2)
@@ -321,6 +361,7 @@ test('distinguishes a same-date rerun in the history removal confirmation', asyn
     return ok({})
   })
   render(<App />)
+  await userEvent.click(await screen.findByRole('button', { name: /saved reports/i }))
   await userEvent.click(await screen.findByRole('button', { name: /show AMD report dates/i }))
   await userEvent.click(screen.getByRole('button', { name: /Remove AMD 2026-09-24 2026-09-24T11:00:00Z report/i }))
   expect(confirm).toHaveBeenCalledWith(expect.stringContaining('2026-09-24T11:00:00Z'))
@@ -338,6 +379,7 @@ test('shows long same-date rerun metadata, depth, verdict and separate remove ac
     return ok({})
   })
   render(<App />)
+  await userEvent.click(await screen.findByRole('button', { name: /saved reports/i }))
   await userEvent.click(await screen.findByRole('button', { name: /show AMD report dates/i }))
   const open = screen.getByRole('button', { name: `Open AMD 2026-09-24 ${timestamp} report` })
   expect(open.querySelector('time')).toHaveTextContent('2026-09-24')
@@ -372,6 +414,7 @@ test('keeps deleted history absent when overlapping refreshes resolve out of ord
     return ok({})
   })
   render(<App />)
+  await userEvent.click(await screen.findByRole('button', { name: /saved reports/i }))
   await userEvent.click(await screen.findByRole('button', { name: /show AMD report dates/i }))
   await userEvent.click(screen.getByRole('button', { name: /Remove AMD 2026-09-24 report/i }))
   await userEvent.click(screen.getByRole('button', { name: /show TSM report dates/i }))
@@ -393,6 +436,7 @@ test('keeps a successfully deleted report removed if history refresh fails', asy
     return ok({})
   })
   render(<App />)
+  await userEvent.click(await screen.findByRole('button', { name: /saved reports/i }))
   await userEvent.click(await screen.findByRole('button', { name: /show AMD report dates/i }))
   await userEvent.click(screen.getByRole('button', { name: /Remove AMD 2026-09-24 report/i }))
   expect(await screen.findByText('No completed runs.')).toBeInTheDocument()
@@ -421,9 +465,11 @@ test('does not reopen a deleted report from a late completed-run response', asyn
   }
   vi.stubGlobal('EventSource', FakeEventSource)
   render(<App />)
+  await userEvent.click(await screen.findByRole('button', { name: /saved reports/i }))
   await screen.findByRole('button', { name: /show AMD report dates/i })
   await userEvent.click(screen.getByRole('button', { name: /^live runs/i }))
   await act(async () => FakeEventSource.instance.onmessage?.({ data: JSON.stringify({ id: 'job-one', status: 'done', message: 'Analysis complete' }) } as MessageEvent))
+  await userEvent.click(screen.getByRole('button', { name: /saved reports/i }))
   await userEvent.click(screen.getByRole('button', { name: /show AMD report dates/i }))
   await userEvent.click(screen.getByRole('button', { name: /Remove AMD 2026-09-24 report/i }))
   await act(async () => resolveReport(new Response(JSON.stringify({ ...record, sections: { final_trade_decision: 'Rating: Buy' } }), { status: 200, headers: { 'Content-Type': 'application/json' } })))
@@ -455,12 +501,14 @@ test('does not reopen a hidden report when a completed job lookup resolves late'
   })
 
   render(<App />)
+  await userEvent.click(await screen.findByRole('button', { name: /saved reports/i }))
   await userEvent.click(await screen.findByRole('button', { name: /show AMD report dates/i }))
   await userEvent.click(screen.getByRole('button', { name: /open AMD 2026-09-24 report/i }))
   act(() => LiveEventSource.instance.emit({ id: 'job-one', status: 'done', type: 'status', message: 'Done' }))
   await userEvent.click(screen.getByRole('button', { name: /inspect AMD/i }))
   await userEvent.click(await screen.findByRole('button', { name: /open completed report/i }))
   expect(resolveReport).toBeDefined()
+  await userEvent.click(screen.getByRole('button', { name: /saved reports/i }))
   await userEvent.click(screen.getByRole('button', { name: /remove AMD 2026-09-24 report/i }))
   await waitFor(() => expect(screen.queryByRole('button', { name: /remove AMD 2026-09-24 report/i })).not.toBeInTheDocument())
   await act(async () => resolveReport(await ok(record)))
@@ -480,6 +528,7 @@ test('uses the most recently requested saved report when requests finish out of 
     return ok({})
   })
   render(<App />)
+  await userEvent.click(await screen.findByRole('button', { name: /saved reports/i }))
   await userEvent.click(await screen.findByRole('button', { name: /show AMD report dates/i }))
   await userEvent.click(screen.getByRole('button', { name: /open AMD 2026-09-24 report/i }))
   await userEvent.click(screen.getByRole('button', { name: /show TSM report dates/i }))
@@ -533,6 +582,7 @@ test('report table of contents links to stable section anchors', async () => {
   })
 
   render(<App />)
+  await userEvent.click(await screen.findByRole('button', { name: /saved reports/i }))
   await userEvent.click(await screen.findByRole('button', { name: /show AMD report dates/i }))
   await userEvent.click(screen.getByRole('button', { name: 'Open AMD 2026-09-24 report' }))
 
@@ -779,6 +829,7 @@ test('shows saved model from list and detail, with a legacy fallback in both pla
     return ok({})
   })
   render(<App />)
+  await userEvent.click(await screen.findByRole('button', { name: /saved reports/i }))
   await userEvent.click(await screen.findByRole('button', { name: /show AMD report dates/i }))
   expect(screen.getByText('LLM model: gemini-3.8-flash-high', { selector: '.history-model' })).toBeInTheDocument()
   await userEvent.click(screen.getByRole('button', { name: /open AMD/i }))
