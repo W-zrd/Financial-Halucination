@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import re
+from datetime import date
 from pathlib import Path
 
 from tradingagents.web.runs import read_run, scan_runs
@@ -14,6 +15,16 @@ ALLOCATION_WEIGHT = {"Buy": 3, "Overweight": 2}
 MISSING = "Not available"
 RATING_ORDER = {"Buy": 0, "Overweight": 1, "Hold": 2, "Underweight": 3, "Sell": 4}
 MONEY = re.compile(r"^\$?((?:\d{1,3}(?:,\d{3})+|\d+)(?:\.\d+)?)\b")
+
+
+def _category(rating: str) -> str:
+    if rating in ("Buy", "Overweight"):
+        return "buy"
+    if rating == "Hold":
+        return "hold"
+    if rating in ("Underweight", "Sell"):
+        return "sell"
+    return "unknown"
 
 
 def _field(text: str, label: str) -> str:
@@ -35,15 +46,32 @@ def _level(text: str) -> tuple[str, float | None]:
 
 def build_overview(results_dir: Path) -> dict:
     latest: dict[str, dict] = {}
+    by_ticker_day: dict[tuple[str, str], dict] = {}
     for run in scan_runs(results_dir):
         if run["status"] != "done":
             continue
         ticker = str(run["ticker"]).upper()
+        analysis_date = str(run["analysis_date"])
+        try:
+            valid_day = date.fromisoformat(analysis_date).isoformat() == analysis_date
+        except ValueError:
+            valid_day = False
+        if valid_day:
+            key = (ticker, analysis_date)
+            previous = by_ticker_day.get(key)
+            if previous is None or (str(run["created_at"]), run["id"]) > (str(previous["created_at"]), previous["id"]):
+                by_ticker_day[key] = run
         current = latest.get(ticker)
         if current is None or (str(run["analysis_date"]), str(run["created_at"])) > (
             str(current["analysis_date"]), str(current["created_at"])
         ):
             latest[ticker] = run
+
+    days: dict[str, dict] = {}
+    for (_, analysis_date), run in by_ticker_day.items():
+        point = days.setdefault(analysis_date, {"analysis_date": analysis_date, "buy": 0, "hold": 0, "sell": 0, "unknown": 0})
+        point[_category(str(run["rating"]))] += 1
+    timeline = [days[day] for day in sorted(days)]
 
     rows = []
     counts = {"buy": 0, "hold": 0, "sell": 0, "unknown": 0}
@@ -55,14 +83,8 @@ def build_overview(results_dir: Path) -> dict:
         final = sections.get("final_trade_decision") or sections.get("5_portfolio_decision", "")
         trader = sections.get("trader_investment_plan") or sections.get("3_trading_trader", "")
         rating = str(run["rating"])
-        if rating in ("Buy", "Overweight"):
-            category, action = "buy", "WAIT FOR VALIDATION"
-        elif rating == "Hold":
-            category, action = "hold", "HOLD / NO NEW BUY"
-        elif rating in ("Underweight", "Sell"):
-            category, action = "sell", "AVOID NEW BUY"
-        else:
-            category, action = "unknown", "REVIEW"
+        category = _category(rating)
+        action = {"buy": "WAIT FOR VALIDATION", "hold": "HOLD / NO NEW BUY", "sell": "AVOID NEW BUY", "unknown": "REVIEW"}[category]
         counts[category] += 1
 
         entry_text = _field(trader, "Entry Price")
@@ -121,5 +143,5 @@ def build_overview(results_dir: Path) -> dict:
     cash_cents = BUDGET_CENTS - sum(round(row["allocation"] * 100) for row in rows)
     return {
         "budget": BUDGET_CENTS / 100, "cash": cash_cents / 100,
-        "counts": counts, "rows": rows,
+        "counts": counts, "rows": rows, "timeline": timeline,
     }

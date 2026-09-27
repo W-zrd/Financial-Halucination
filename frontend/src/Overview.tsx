@@ -27,7 +27,59 @@ export type OverviewData = {
   budget: number
   cash: number
   counts: { buy: number; hold: number; sell: number; unknown: number }
+  timeline: OverviewTimelinePoint[]
   rows: OverviewRow[]
+}
+
+type OverviewTimelinePoint = { analysis_date: string; buy: number; hold: number; sell: number; unknown: number }
+const signalKeys = ['buy', 'hold', 'sell', 'unknown'] as const
+const signalLabels = ['Buy / Overweight', 'Hold', 'Underweight / Sell', 'Unknown']
+
+function RatingTimeline({ timeline }: { timeline: OverviewTimelinePoint[] }) {
+  if (!timeline.length) return <section className="overview-section overview-timeline" aria-labelledby="overview-timeline-title">
+    <div className="overview-section-head"><div><span className="overview-kicker">SAVED SIGNALS / BY ANALYSIS DATE</span><h3 id="overview-timeline-title">Rating timeline</h3></div></div>
+    <p className="overview-timeline-empty">No saved analysis dates yet.</p>
+  </section>
+
+  const totals = timeline.map(point => signalKeys.reduce((total, key) => total + point[key], 0))
+  const maximum = Math.max(1, ...totals)
+  const width = Math.max(420, 128 + (timeline.length - 1) * 120)
+  const left = 64
+  const right = width - 64
+  const bottom = 205
+  const top = 20
+  const x = (index: number) => left + (right - left) * index / Math.max(1, timeline.length - 1)
+  const y = (value: number) => bottom - value / maximum * (bottom - top)
+  let lower = timeline.map(() => 0)
+  const areas = signalKeys.map(key => {
+    const upper = timeline.map((point, pointIndex) => lower[pointIndex] + point[key])
+    const path = `M ${upper.map((value, pointIndex) => `${x(pointIndex)} ${y(value)}`).join(' L ')} L ${lower.map((value, pointIndex) => `${x(pointIndex)} ${y(value)}`).reverse().join(' L ')} Z`
+    const bandTop = y(upper[0])
+    const bandHeight = y(lower[0]) - bandTop
+    lower = upper
+    return timeline.length === 1
+      ? <rect key={key} className={`overview-timeline-band overview-${key}`} x={left} y={bandTop} width={right - left} height={bandHeight} />
+      : <path key={key} className={`overview-timeline-area overview-${key}`} d={path} />
+  })
+
+  return <section className="overview-section overview-timeline" aria-labelledby="overview-timeline-title">
+    <div className="overview-section-head"><div><span className="overview-kicker">SAVED SIGNALS / BY ANALYSIS DATE</span><h3 id="overview-timeline-title">Rating timeline</h3></div><span>Distinct tickers per date · latest saved decision per ticker/date</span></div>
+    <div className="overview-timeline-content">
+      <ul className="overview-timeline-legend" aria-label="Rating timeline legend">{signalKeys.map((key, index) => <li key={key}><span className={`overview-${key}`} aria-hidden="true" />{signalLabels[index]}</li>)}</ul>
+      <div className="overview-timeline-scroll" role="region" aria-label="Rating timeline chart (scroll horizontally for more dates)" tabIndex={0}>
+        <svg className="overview-timeline-svg" width={width} height="250" viewBox={`0 0 ${width} 250`} role="img" aria-label={`Saved rating timeline, ${timeline.length} observed date${timeline.length === 1 ? '' : 's'}; stacked ticker counts from 0 to ${maximum}. Exact counts in the table below.`}>
+          <line className="overview-timeline-axis" x1={left} x2={right} y1={bottom} y2={bottom} />
+          <line className="overview-timeline-grid" x1={left} x2={right} y1={top} y2={top} />
+          <text className="overview-timeline-axis-label" x={left - 10} y={top + 4} textAnchor="end">{maximum}</text>
+          <text className="overview-timeline-axis-label" x={left - 10} y={bottom + 4} textAnchor="end">0</text>
+          {areas}
+          {timeline.map((point, index) => <text key={point.analysis_date} className="overview-timeline-date" x={timeline.length === 1 ? (left + right) / 2 : x(index)} y={238} textAnchor="middle">{point.analysis_date}</text>)}
+        </svg>
+      </div>
+      <p className="overview-timeline-note">{timeline.length === 1 ? 'One observed date shown as stacked bands; no trend implied.' : 'Observed dates are spaced evenly. Lines between dates are visual connections, not measurements.'} These are saved ratings, not holdings or live signals.</p>
+      <div className="overview-scroll" role="region" aria-label="Rating timeline data (scroll horizontally for all columns)" tabIndex={0}><table aria-label="Saved rating counts by analysis date"><thead><tr><th scope="col">Analysis date</th>{signalLabels.map(label => <th key={label} scope="col">{label}</th>)}<th scope="col">Total tickers</th></tr></thead><tbody>{timeline.map((point, index) => <tr key={point.analysis_date}><th scope="row">{point.analysis_date}</th>{signalKeys.map(key => <td key={key}>{point[key]}</td>)}<td>{totals[index]}</td></tr>)}</tbody></table></div>
+    </div>
+  </section>
 }
 
 const money = (value: number) => new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(value)
@@ -36,7 +88,7 @@ const briefLevel = (value: string | null) => available(value).split(' · ')[0]
 const portion = (amount: number, budget: number) => budget > 0 ? amount / budget * 100 : 0
 
 export default function Overview({ data, onOpenRun }: { data: OverviewData; onOpenRun: (id: string) => void }) {
-  const { budget, cash, counts, rows } = data
+  const { budget, cash, counts, rows, timeline } = data
   const funded = rows.filter(row => row.allocation > 0)
   const watchlist = rows.filter(row => row.allocation === 0)
   const planned = funded.reduce((sum, row) => sum + row.allocation, 0)
@@ -64,6 +116,8 @@ export default function Overview({ data, onOpenRun }: { data: OverviewData; onOp
       <div><span className="overview-kicker">RESEARCH DESK / MONTHLY CAPITAL</span><h2 id="overview-title">Monthly allocation plan</h2></div>
       <p>Proposed targets from saved decisions, not current holdings or live advice. Verify current quotes, existing exposure, report conditions, and fractional-share availability before any order.</p>
     </header>
+
+    <RatingTimeline timeline={timeline ?? []} />
 
     <div className="overview-dashboard">
       <section className="overview-panel overview-budget" aria-labelledby="overview-budget-title">

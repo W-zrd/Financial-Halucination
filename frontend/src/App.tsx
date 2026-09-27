@@ -5,6 +5,7 @@ import Overview, { type OverviewData } from './Overview'
 import './App.css'
 
 type Session = { username: string; csrf_token: string }
+type Models = { models: string[]; default_model: string | null }
 type Run = {
   id: string
   ticker: string
@@ -15,6 +16,7 @@ type Run = {
   created_at: string
   elapsed_seconds?: number | string
   sections?: Record<string, string>
+  llm_model?: string | null
 }
 type Job = {
   id: string
@@ -24,6 +26,7 @@ type Job = {
   status: string
   elapsed_seconds: number
   error?: string
+  llm_model?: string | null
 }
 type LiveEvent = { message: string; eventType?: string }
 type ActiveJob = Job & { events: LiveEvent[]; connection?: 'connecting' | 'live' | 'reconnecting' | 'disconnected' }
@@ -112,6 +115,10 @@ export default function App() {
   const [ticker, setTicker] = useState('AMD')
   const [analysisDate, setAnalysisDate] = useState(new Date().toISOString().slice(0, 10))
   const [depth, setDepth] = useState(3)
+  const [models, setModels] = useState<string[]>([])
+  const [llmModel, setLlmModel] = useState('')
+  const [modelsError, setModelsError] = useState('')
+  const modelsRequest = useRef(0)
   const [error, setError] = useState('')
   const [starting, setStarting] = useState(false)
   const [jobs, setJobs] = useState<ActiveJob[]>([])
@@ -179,14 +186,31 @@ export default function App() {
     active.forEach(monitor)
   }
 
+  async function loadModels() {
+    const request = ++modelsRequest.current
+    setModels([])
+    setLlmModel('')
+    setModelsError('')
+    try {
+      const available = await api<Models>('/api/models')
+      if (!Array.isArray(available.models) || !available.models.every(model => typeof model === 'string' && model.length > 0)) throw new Error('Invalid model list')
+      if (request !== modelsRequest.current) return
+      setModels(available.models)
+      setLlmModel(available.default_model && available.models.includes(available.default_model) ? available.default_model : '')
+    } catch (err) {
+      if (request === modelsRequest.current) setModelsError(err instanceof Error ? err.message : 'Unable to load models')
+    }
+  }
+
   useEffect(() => {
     api<Session>('/api/session')
       .then(async value => {
         setSession(value)
+        void loadModels()
         await restoreWorkspace()
       })
       .catch(() => setSession(null))
-    return () => Object.values(streams.current).forEach(stream => stream.close())
+    return () => { modelsRequest.current++; Object.values(streams.current).forEach(stream => stream.close()) }
   }, [])
 
   async function openRun(run: Pick<Run, 'id'>) {
@@ -313,6 +337,7 @@ export default function App() {
 
   async function start(event: FormEvent) {
     event.preventDefault()
+    if (starting || !models.includes(llmModel)) return
     setError('')
     const symbol = ticker.trim().toUpperCase()
     if (!/^[A-Za-z0-9._\-^=]{1,32}$/.test(symbol)) {
@@ -328,7 +353,7 @@ export default function App() {
       const response = await api<Partial<Job> & Pick<Job, 'id' | 'status'>>('/api/runs', {
         method: 'POST',
         headers: { 'X-CSRF-Token': session!.csrf_token },
-        body: JSON.stringify({ ticker: symbol, analysis_date: analysisDate, depth }),
+        body: JSON.stringify({ ticker: symbol, analysis_date: analysisDate, depth, llm_model: llmModel }),
       })
       const job: ActiveJob = {
         id: response.id,
@@ -338,6 +363,7 @@ export default function App() {
         status: response.status,
         elapsed_seconds: response.elapsed_seconds ?? 0,
         error: response.error,
+        llm_model: response.llm_model ?? llmModel,
         events: [],
       }
       setJobs(current => [job, ...current.filter(item => item.id !== job.id)])
@@ -373,12 +399,16 @@ export default function App() {
   async function logout() {
     await api('/api/auth/logout', { method: 'POST', headers: { 'X-CSRF-Token': session!.csrf_token } })
     Object.values(streams.current).forEach(stream => stream.close())
+    modelsRequest.current++
+    setModels([])
+    setLlmModel('')
     setSession(null)
   }
 
   if (session === undefined) return <main className="loading">CONNECTING TO ANALYSIS NODE…</main>
   if (!session) return <Login onLogin={value => {
     setSession(value)
+    void loadModels()
     restoreWorkspace().catch(() => setError('Signed in, but the workspace could not be restored.'))
   }} />
 
@@ -419,6 +449,7 @@ export default function App() {
                 <time dateTime={run.analysis_date}>{run.analysis_date}</time>
                 {repeatedDate && <small className="history-created">{run.created_at || run.id}</small>}
                 <small className="history-depth">{depths.some(item => String(item.value) === String(run.depth)) ? `D${run.depth}` : 'Depth not available'}</small>
+                <small className="history-model">LLM model: {run.llm_model || 'Not available'}</small>
                 <em className={`rating ${String(run.rating).toLowerCase()}`}>{run.rating || 'Not available'}</em>
               </button>
               <button className="history-remove" disabled={removing.includes(run.id)} onClick={() => removeRun(run, descriptor)} aria-label={`Remove ${name} ${descriptor} report`} title="Remove this saved analysis">×</button>
@@ -438,11 +469,18 @@ export default function App() {
               <label>Ticker<input aria-label="Ticker" list="ticker-options" value={ticker} onChange={event => setTicker(event.target.value)} maxLength={32} /><datalist id="ticker-options">{tickers.map(item => <option key={item}>{item}</option>)}</datalist></label>
               <label>Analysis date<input type="date" value={analysisDate} max={maxDate} onChange={event => setAnalysisDate(event.target.value)} /></label>
             </div>
+            <label className="model-field">LLM model
+              <select value={llmModel} onChange={event => setLlmModel(event.target.value)} disabled={!models.length}>
+                <option value="">Select a model</option>
+                {models.map(model => <option key={model} value={model}>{model}</option>)}
+              </select>
+            </label>
+            {modelsError && <div className="error model-error" role="alert">Models could not be loaded: {modelsError} <button type="button" onClick={() => void loadModels()}>Retry</button></div>}
             <fieldset>
               <legend>Research depth</legend>
               <div className="depths">{depths.map(item => <label className={depth === item.value ? 'depth active' : 'depth'} key={item.value}><input type="radio" name="depth" checked={depth === item.value} onChange={() => setDepth(item.value)} /><b>{item.value} / {item.name}</b><span>{item.meaning}</span></label>)}</div>
             </fieldset>
-            <button className="run-button" disabled={starting}>{starting ? 'STARTING…' : 'RUN ANALYSIS'}</button>
+            <button className="run-button" disabled={starting || !models.includes(llmModel)}>{starting ? 'STARTING…' : 'RUN ANALYSIS'}</button>
           </form>
         </section>
         {view === 'overview' && (overview ? <Overview data={overview} onOpenRun={id => openRun({ id })} /> : !error && <p className="empty">Loading saved analyses…</p>)}
@@ -469,7 +507,7 @@ function JobCard({ job, onStop, onReconnect }: { job: ActiveJob; onStop: () => v
       <div><span className="job-kicker">{job.analysis_date} · DEPTH {job.depth}</span><h3>{job.ticker} analysis</h3></div>
       <span className="status-pill"><span aria-hidden="true" />{job.status.toUpperCase()}</span>
     </div>
-    <div className="job-meta"><span>JOB {job.id}</span><code>{job.elapsed_seconds ?? 0}s</code></div>
+    <div className="job-meta"><span>JOB {job.id}</span><span className="job-model">LLM model: {job.llm_model || 'Not available'}</span><code>{job.elapsed_seconds ?? 0}s</code></div>
     {!terminalStatuses.has(job.status) && <div className="connection-status" role="status">
       {job.connection === 'live' ? 'Live connection' : `${job.connection === 'disconnected' ? 'Disconnected' : job.connection === 'reconnecting' ? 'Reconnecting' : 'Connecting'} — showing last received state`}
       {job.connection === 'disconnected' && <button className="ghost" onClick={onReconnect}>Reconnect stream</button>}
@@ -490,13 +528,63 @@ function sectionId(key: string) {
   return `section-${key.replaceAll('_', '-')}`
 }
 
+function marketScenarios(text?: string) {
+  const prediction = (text || '').split('\n').map(line => /^\s*(?:#{1,4}\s+)?(?:\*\*)?(Market Prediction|Market Outlook|Market Bias)\s*:(?:\*\*)?\s*(?:\*\*)?(Bullish|Bearish|Bull|Bear)(?:\*\*)?\s*$/i.exec(line)).find(Boolean)
+  if (prediction) return [{
+    direction: /^bull/i.test(prediction[2]) ? 'bullish' : 'bearish',
+    heading: `${prediction[1]}: ${prediction[2]}`,
+    role: 'Reported direction',
+  }]
+  const headings = (text || '').split('\n').map(line => /^#{2,4}\s+(Bullish|Bearish)(?:\s*\/\s*Invalidation)?\s+Scenario(?:\s*\(([^)]+)\))?\s*$/i.exec(line.trim()))
+    .filter((match): match is RegExpExecArray => match !== null)
+  const bull = headings.find(match => match[1].toLowerCase() === 'bullish')
+  const bear = headings.find(match => match[1].toLowerCase() === 'bearish')
+  if (!bull || !bear) return null
+  return [bull, bear].map(match => ({
+    direction: match[1].toLowerCase(),
+    heading: match[0].replace(/^#{2,4}\s+/, ''),
+    role: /primary bias/i.test(match[2] || '') ? 'Primary bias' : /invalidation/i.test(match[0]) ? 'Conditional / invalidation' : /conditional/i.test(match[2] || '') ? 'Conditional' : 'Scenario',
+  }))
+}
+
+function overallSentiment(text?: string) {
+  const line = (text || '').split('\n').find(value => /^\s*(?:#{1,4}\s+)?(?:\*\*)?Overall Sentiment:(?:\*\*)?\s*/i.test(value))
+  const match = line?.match(/^\s*(?:#{1,4}\s+)?(?:\*\*)?Overall Sentiment:(?:\*\*)?\s*(?:\*\*)?([A-Za-z][A-Za-z -]{0,40}?)(?:\*\*)?\s*\(Score:\s*(\d+(?:\.\d+)?)\s*\/\s*(\d+(?:\.\d+)?)\)\s*$/i)
+  if (!match) return null
+  const score = Number(match[2]), max = Number(match[3])
+  if (!Number.isFinite(score) || !Number.isFinite(max) || max <= 0 || score > max) return null
+  return { label: match[1].trim(), score, max, display: `${match[2]}/${match[3]}` }
+}
+
+function ReportVisualizations({ sections }: { sections: Record<string, string> }) {
+  const market = sections.market_report ?? sections['1_analysts_market']
+  const sentiment = sections.sentiment_report ?? sections['1_analysts_sentiment']
+  if (market === undefined && sentiment === undefined) return null
+  const scenarios = marketScenarios(market)
+  const reading = overallSentiment(sentiment)
+  return <section className="report-visuals" aria-label="Report visualizations">
+    {market !== undefined && <div className="visual-card"><h2>Market scenarios</h2>
+      {scenarios ? <div className="scenario-chart" aria-label="Qualitative market scenarios">{scenarios.map(item => <div className={`scenario-lane scenario-${item.direction}`} key={item.direction}>
+        <span className="scenario-rail" aria-hidden="true" /><div><strong>{item.heading}</strong><small>{item.role}</small></div>
+      </div>)}</div> : <p className="visual-unavailable">Not available — explicit bullish and bearish scenarios required.</p>}
+    </div>}
+    {sentiment !== undefined && <div className="visual-card"><h2>Overall sentiment</h2>
+      {reading ? <><div className="sentiment-reading"><strong>{reading.label}</strong><span>{reading.display}</span></div>
+        <div className="sentiment-track" role="meter" aria-label={`Overall sentiment score: ${reading.display}`} aria-valuemin={0} aria-valuenow={reading.score} aria-valuemax={reading.max}>
+          <span className="sentiment-fill" style={{ width: `${Number((reading.score / reading.max * 100).toFixed(4))}%` }} />
+        </div><div className="sentiment-scale"><span>0</span><span>{reading.max}</span></div></> : <p className="visual-unavailable">Not available — explicit overall sentiment and valid score required.</p>}
+    </div>}
+  </section>
+}
+
 function Report({ run, raw }: { run: Run; raw: boolean }) {
   const sections = Object.entries(run.sections || {})
   return <article className="report">
     <div className="verdict">
       <div><span>FINAL RATING</span><strong className={`rating ${String(run.rating).toLowerCase()}`}>{run.rating || 'Not available'}</strong></div>
-      <dl><div><dt>TICKER</dt><dd>{run.ticker || 'Not available'}</dd></div><div><dt>DATE</dt><dd>{run.analysis_date || 'Not available'}</dd></div><div><dt>DEPTH</dt><dd>{run.depth ?? 'Not available'}</dd></div></dl>
+      <dl><div><dt>TICKER</dt><dd>{run.ticker || 'Not available'}</dd></div><div><dt>DATE</dt><dd>{run.analysis_date || 'Not available'}</dd></div><div><dt>DEPTH</dt><dd>{run.depth ?? 'Not available'}</dd></div><div><dt>LLM MODEL</dt><dd className="report-model">{run.llm_model || 'Not available'}</dd></div></dl>
     </div>
+    {!raw && <ReportVisualizations sections={run.sections || {}} />}
     {sections.length ? <div className="report-layout">
       <nav className="report-toc" aria-label="Report contents">
         <span>ON THIS REPORT</span>

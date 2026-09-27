@@ -15,7 +15,7 @@ from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import date, datetime, timezone
 from pathlib import Path
-from typing import Any, Literal
+from typing import Any, Literal, get_args
 
 from pydantic import BaseModel, Field, field_validator
 
@@ -32,6 +32,18 @@ REPORT_FILES = {
     "final_trade_decision": "final_trade_decision.md",
 }
 DEPTHS = {1, 3, 5}
+LLMModel = Literal[
+    "deepseek-v4-pro-0813",
+    "deepseek-v4.1-flash",
+    "DeepSeek-V4-Pro",
+    "gemini-3.8-flash-high",
+    "glm-5.3",
+    "glm-5.3-flash",
+    "gpt-6-luna",
+    "muse-spark-1.3-free",
+    "qwen3.8-max",
+]
+LLM_MODELS = get_args(LLMModel)
 STATUSES = {"queued", "running", "done", "failed", "cancelled"}
 FINAL_RATING = re.compile(
     r"^\s*(?:#{1,6}\s*)?(?:\*\*)?(?P<final>final\s+)?(?:rating|decision|recommendation|verdict)"
@@ -45,6 +57,7 @@ class AnalysisRequest(BaseModel):
     ticker: str = Field(min_length=1, max_length=32)
     analysis_date: str
     depth: int
+    llm_model: LLMModel | None = None
 
     @field_validator("ticker")
     @classmethod
@@ -76,6 +89,15 @@ class AnalysisRequest(BaseModel):
 
 def _now() -> str:
     return datetime.now(timezone.utc).isoformat()
+
+
+def default_web_model() -> str | None:
+    """Offer the configured default only when both graph roles use one listed model."""
+    from tradingagents.default_config import DEFAULT_CONFIG
+
+    quick = os.environ.get("TRADINGAGENTS_QUICK_THINK_LLM") or DEFAULT_CONFIG["quick_think_llm"]
+    deep = os.environ.get("TRADINGAGENTS_DEEP_THINK_LLM") or DEFAULT_CONFIG["deep_think_llm"]
+    return quick if quick == deep and quick in LLM_MODELS else None
 
 
 def _run_id(path: Path, stat: os.stat_result | None = None) -> str:
@@ -177,6 +199,7 @@ def scan_runs(results_dir: Path) -> list[dict]:
             "ticker": metadata.get("ticker") or ticker,
             "analysis_date": metadata.get("analysis_date") or analysis_date,
             "depth": metadata.get("depth", "Not available"),
+            "llm_model": metadata.get("llm_model") if isinstance(metadata.get("llm_model"), str) and metadata.get("llm_model") else None,
             "status": metadata.get("status", "done"),
             "rating": _final_rating(decision) or "Not available",
             "created_at": metadata.get("created_at") or datetime.fromtimestamp(stat.st_mtime, timezone.utc).isoformat(),
@@ -279,7 +302,7 @@ def execute_analysis(
     emit: Callable[[str, str], None],
     graph_factory=None,
 ) -> Path:
-    """Headless programmatic seam. Provider and model choices only come from env."""
+    """Headless programmatic seam. The optional web choice pins both model roles."""
     from cli.prompts import detect_asset_type
     from tradingagents.default_config import DEFAULT_CONFIG, _coerce
     from tradingagents.graph.trading_graph import TradingAgentsGraph
@@ -303,6 +326,9 @@ def execute_analysis(
         if value:
             coerced = _coerce(value, DEFAULT_CONFIG.get(key))
             config[key] = _coerce_max_retries(coerced) if key == "llm_max_retries" else coerced
+    if request.llm_model is not None:
+        config["quick_think_llm"] = request.llm_model
+        config["deep_think_llm"] = request.llm_model
     config.update({
         "results_dir": str(results_dir),
         "output_language": "English",
@@ -392,6 +418,7 @@ class Job:
             "ticker": self.request.ticker,
             "analysis_date": self.request.analysis_date,
             "depth": self.request.depth,
+            "llm_model": self.request.llm_model,
             "status": self.status,
             "created_at": self.created_at,
             "elapsed_seconds": round(elapsed, 2),
@@ -464,6 +491,10 @@ class RunManager:
                 self.cancel(job.id)
 
     def submit(self, request: AnalysisRequest) -> Job:
+        if request.llm_model is None:
+            configured_model = default_web_model()
+            if configured_model is not None:
+                request = request.model_copy(update={"llm_model": configured_model})
         job = Job(id=uuid.uuid4().hex, request=request)
         with self._lock:
             if any(

@@ -19,9 +19,11 @@ from pydantic import BaseModel
 
 from .overview import build_overview
 from .runs import (
+    LLM_MODELS,
     AnalysisRequest,
     DuplicateRunError,
     RunManager,
+    default_web_model,
     delete_run,
     read_run,
     report_file,
@@ -161,6 +163,10 @@ def create_app(results_dir: Path | None = None, executor=None, frontend_dist: Pa
     @app.get("/api/jobs")
     def get_jobs(_=Depends(session)):
         return manager.list_jobs()
+
+    @app.get("/api/models")
+    def models(_=Depends(session)):
+        return {"models": LLM_MODELS, "default_model": default_web_model()}
 
     @app.get("/api/jobs/{job_id}")
     def get_job(job_id: str, _=Depends(session)):

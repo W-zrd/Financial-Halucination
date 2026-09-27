@@ -5,12 +5,95 @@ import App from './App'
 
 const ok = (body: unknown, status = 200) => Promise.resolve(new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json' } }))
 
+async function openVisualReport(sections: Record<string, string>) {
+  vi.mocked(fetch).mockImplementation((input: RequestInfo | URL) => {
+    const url = String(input)
+    if (url.endsWith('/api/session')) return ok({ username: 'analyst', csrf_token: 'csrf' })
+    if (url.endsWith('/api/models')) return ok({ models: ['glm-5.3'], default_model: 'glm-5.3' })
+    if (url.endsWith('/api/runs')) return ok([{ id: 'chart', ticker: 'NVDA', analysis_date: '2026-09-25', depth: 3, status: 'done', rating: 'Buy', created_at: '2026-09-25' }])
+    if (url.endsWith('/api/runs/chart')) return ok({ id: 'chart', ticker: 'NVDA', analysis_date: '2026-09-25', depth: 3, status: 'done', rating: 'Buy', sections })
+    return ok({})
+  })
+  render(<App />)
+  await userEvent.click(await screen.findByRole('button', { name: /show NVDA report dates/i }))
+  await userEvent.click(screen.getByRole('button', { name: /open NVDA/i }))
+  await screen.findByText('FINAL RATING')
+}
+
+test('charts explicit market scenarios and numeric sentiment above report text without invented odds', async () => {
+  await openVisualReport({
+    market_report: '### Bullish Scenario (Primary Bias)\n- **Trigger:** Close over $228.87\n### Bearish / Invalidation Scenario\n- **Trigger:** Breakdown below $221.65',
+    sentiment_report: '**Overall Sentiment:** **Mildly Bullish** (Score: 5.8/10)\n\n### Signals\nMixed evidence',
+  })
+  const chart = screen.getByRole('region', { name: 'Report visualizations' })
+  expect(chart).toHaveTextContent('Primary bias')
+  expect(chart).toHaveTextContent('Conditional / invalidation')
+  expect(chart).toHaveTextContent('Bullish Scenario')
+  expect(chart).toHaveTextContent('Bearish / Invalidation Scenario')
+  expect(chart).toHaveTextContent('Mildly Bullish')
+  expect(chart).toHaveTextContent('5.8/10')
+  expect(chart.querySelector('[role="meter"]')).toHaveAttribute('aria-valuenow', '5.8')
+  expect(chart.querySelector('[role="meter"]')).toHaveAttribute('aria-valuemax', '10')
+  expect(chart.querySelector('[role="meter"] .sentiment-fill')).toHaveAttribute('style', 'width: 58%;')
+  expect(chart.textContent).not.toMatch(/probability|chance|%/i)
+  expect(chart.compareDocumentPosition(screen.getByRole('navigation', { name: 'Report contents' })) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+  expect(screen.getByRole('heading', { name: 'Bullish Scenario (Primary Bias)' })).toBeInTheDocument()
+  await userEvent.click(screen.getByRole('button', { name: /raw/i }))
+  expect(screen.queryByRole('region', { name: 'Report visualizations' })).not.toBeInTheDocument()
+  expect(screen.getByText(/### Bullish Scenario \(Primary Bias\)/)).toBeInTheDocument()
+})
+
+test('charts a directly labelled bearish prediction without requiring paired scenarios', async () => {
+  await openVisualReport({ market_report: '**Market Prediction:** **Bearish**\nThe report outlines a conditional recovery case.' })
+  const chart = screen.getByRole('region', { name: 'Report visualizations' })
+  expect(chart).toHaveTextContent('Bearish')
+  expect(chart).toHaveTextContent('Reported direction')
+  expect(chart.querySelectorAll('.scenario-lane')).toHaveLength(1)
+  expect(chart.textContent).not.toMatch(/probability|%/i)
+})
+
+test('shows unavailable for absent or malformed explicit chart data, not debate rhetoric or stray numbers', async () => {
+  await openVisualReport({
+    '1_analysts_market': 'Bull and bear debate: bullish case has 80% upside.\n### Bullish Scenario\nNo bearish scenario here.',
+    '1_analysts_sentiment': '**Overall Sentiment:** Bullish (Score: 12/10)\n\n### Bullish/Bearish discussion\n5.8/10 mentioned in a quote.',
+  })
+  const chart = screen.getByRole('region', { name: 'Report visualizations' })
+  expect(chart).toHaveTextContent('Market scenarios')
+  expect(chart).toHaveTextContent('Overall sentiment')
+  expect(chart.querySelectorAll('[role="meter"]')).toHaveLength(0)
+  expect(chart.querySelectorAll('.scenario-lane')).toHaveLength(0)
+  expect(chart.querySelectorAll('.visual-unavailable')).toHaveLength(2)
+})
+
+test('supports legacy section keys with explicit scenarios and sentiment, rejecting a score without label', async () => {
+  await openVisualReport({
+    '1_analysts_market': '### Bearish Scenario (Primary Bias)\n- Falling\n### Bullish Scenario (Conditional)\n- Recovery',
+    '1_analysts_sentiment': '**Overall Sentiment:** Neutral (Score: 0/5)',
+  })
+  const chart = screen.getByRole('region', { name: 'Report visualizations' })
+  expect(chart.querySelectorAll('.scenario-lane')).toHaveLength(2)
+  expect(chart).toHaveTextContent('Neutral')
+  expect(chart.querySelector('[role="meter"]')).toHaveAttribute('aria-valuemax', '5')
+  expect(chart.querySelector('[role="meter"]')).toHaveAttribute('aria-valuenow', '0')
+})
+
+test('does not infer sentiment from an unlabelled score or show charts without source sections', async () => {
+  await openVisualReport({ sentiment_report: '### Bullish/Bearish debate\nScore: 5.8/10\nOverall sentiment appears positive.' })
+  const chart = screen.getByRole('region', { name: 'Report visualizations' })
+  expect(chart.querySelector('[role="meter"]')).toBeNull()
+  expect(chart).toHaveTextContent('Not available')
+  cleanup()
+  await openVisualReport({ final_trade_decision: 'Bullish case against bearish case. 5.8/10.' })
+  expect(screen.queryByRole('region', { name: 'Report visualizations' })).not.toBeInTheDocument()
+})
+
 afterEach(() => cleanup())
 
 beforeEach(() => {
   vi.stubGlobal('fetch', vi.fn((input: RequestInfo | URL) => {
     const url = String(input)
     if (url.endsWith('/api/session')) return ok({ username: 'analyst', csrf_token: 'csrf' })
+    if (url.endsWith('/api/models')) return ok({ models: ['glm-5.3'], default_model: 'glm-5.3' })
     if (url.endsWith('/api/runs')) return ok([])
     return ok({})
   }))
@@ -394,6 +477,7 @@ test('opens the completed report when a live run finishes', async () => {
   vi.mocked(fetch).mockImplementation((input: RequestInfo | URL, init?: RequestInit) => {
     const url = String(input)
     if (url.endsWith('/api/session')) return ok({ username: 'analyst', csrf_token: 'csrf' })
+    if (url.endsWith('/api/models')) return ok({ models: ['glm-5.3'], default_model: 'glm-5.3' })
     if (url.endsWith('/api/runs') && init?.method === 'POST') return ok({ id: 'job-one', status: 'queued', elapsed_seconds: 0 }, 202)
     if (url.endsWith('/api/runs')) {
       historyCalls += 1
@@ -449,6 +533,7 @@ test('focuses one run at a time and reveals setup only when requested', async ()
   vi.mocked(fetch).mockImplementation((input: RequestInfo | URL, init?: RequestInit) => {
     const url = String(input)
     if (url.endsWith('/api/session')) return ok({ username: 'analyst', csrf_token: 'csrf' })
+    if (url.endsWith('/api/models')) return ok({ models: ['glm-5.3'], default_model: 'glm-5.3' })
     if (url.endsWith('/api/runs') && init?.method === 'POST') {
       sequence += 1
       const payload = JSON.parse(String(init.body))
@@ -482,6 +567,7 @@ test('force stop calls the cancel API with CSRF and marks the run cancelled', as
   vi.mocked(fetch).mockImplementation((input: RequestInfo | URL, init?: RequestInit) => {
     const url = String(input)
     if (url.endsWith('/api/session')) return ok({ username: 'analyst', csrf_token: 'csrf' })
+    if (url.endsWith('/api/models')) return ok({ models: ['glm-5.3'], default_model: 'glm-5.3' })
     if (url.endsWith('/api/runs') && init?.method === 'POST') return ok({ id: 'job-stop', ticker: 'AMD', analysis_date: '2026-09-24', depth: 3, status: 'running', elapsed_seconds: 4 }, 202)
     if (url.endsWith('/api/runs')) return ok([])
     if (url.endsWith('/api/jobs/job-stop/cancel')) return ok({ id: 'job-stop', ticker: 'AMD', analysis_date: '2026-09-24', depth: 3, status: 'cancelled', elapsed_seconds: 5 })
@@ -515,6 +601,7 @@ test('keeps SSE open for native reconnect and shows production event fields', as
   vi.mocked(fetch).mockImplementation((input: RequestInfo | URL, init?: RequestInit) => {
     const url = String(input)
     if (url.endsWith('/api/session')) return ok({ username: 'analyst', csrf_token: 'csrf' })
+    if (url.endsWith('/api/models')) return ok({ models: ['glm-5.3'], default_model: 'glm-5.3' })
     if (url.endsWith('/api/runs') && init?.method === 'POST') return ok({ id: 'job-live', ticker: 'AMD', analysis_date: '2026-09-24', depth: 3, status: 'running', elapsed_seconds: 1 }, 202)
     if (url.endsWith('/api/runs')) return ok([])
     return ok({})
@@ -554,7 +641,7 @@ test('restores active jobs and reconnects their live streams on load', async () 
     const url = String(input)
     if (url.endsWith('/api/session')) return ok({ username: 'analyst', csrf_token: 'csrf' })
     if (url.endsWith('/api/jobs')) return ok([
-      { id: 'restored-queued', ticker: 'AVGO', analysis_date: '2026-09-24', depth: 3, status: 'queued', elapsed_seconds: 3 },
+      { id: 'restored-queued', ticker: 'AVGO', analysis_date: '2026-09-24', depth: 3, status: 'queued', elapsed_seconds: 3, llm_model: 'glm-5.3-flash' },
       { id: 'restored-running', ticker: 'MU', analysis_date: '2026-09-24', depth: 5, status: 'running', elapsed_seconds: 20 },
       { id: 'old-done', ticker: 'SPY', analysis_date: '2026-09-23', depth: 1, status: 'done', elapsed_seconds: 30 },
     ])
@@ -565,6 +652,7 @@ test('restores active jobs and reconnects their live streams on load', async () 
   render(<App />)
 
   expect(await screen.findByRole('heading', { name: /AVGO analysis/i })).toBeInTheDocument()
+  expect(screen.getByText('LLM model: glm-5.3-flash', { selector: '.job-model' })).toBeInTheDocument()
   expect(screen.getByRole('button', { name: /inspect MU/i })).toBeInTheDocument()
   expect(screen.queryByRole('heading', { name: /SPY analysis/i })).not.toBeInTheDocument()
   expect(opened).toEqual(expect.arrayContaining(['/api/runs/restored-queued/events', '/api/runs/restored-running/events']))
@@ -597,4 +685,79 @@ test('restores active jobs immediately after signing in', async () => {
 
   expect(await screen.findByRole('heading', { name: /PANW analysis/i })).toBeInTheDocument()
   expect(opened).toContain('/api/runs/after-login/events')
+})
+
+test('loads authenticated models, selects the server default and posts the exact chosen model with CSRF', async () => {
+  let resolveModels!: (response: Response) => void
+  vi.mocked(fetch).mockImplementation((input: RequestInfo | URL, init?: RequestInit) => {
+    const url = String(input)
+    if (url.endsWith('/api/session')) return ok({ username: 'analyst', csrf_token: 'csrf' })
+    if (url.endsWith('/api/models')) return new Promise(resolve => { resolveModels = resolve })
+    if (url.endsWith('/api/runs') && init?.method === 'POST') return ok({ id: 'job-model', status: 'queued', llm_model: 'DeepSeek-V4-Pro' }, 202)
+    if (url.endsWith('/api/runs')) return ok([])
+    return ok({})
+  })
+  class IdleEventSource { close() {} }
+  vi.stubGlobal('EventSource', IdleEventSource)
+  render(<App />)
+  const start = await screen.findByRole('button', { name: /run analysis/i })
+  expect(start).toBeDisabled()
+  expect(fetch).toHaveBeenCalledWith('/api/models', expect.anything())
+  await act(async () => resolveModels(await ok({ models: ['deepseek-v4-pro-0813', 'DeepSeek-V4-Pro'], default_model: 'deepseek-v4-pro-0813' })))
+  const model = screen.getByRole('combobox', { name: 'LLM model' })
+  expect(model).toHaveValue('deepseek-v4-pro-0813')
+  expect(screen.getAllByRole('option').map(option => option.getAttribute('value'))).toEqual(['', 'deepseek-v4-pro-0813', 'DeepSeek-V4-Pro'])
+  await userEvent.selectOptions(model, 'DeepSeek-V4-Pro')
+  await userEvent.click(start)
+  expect(fetch).toHaveBeenCalledWith('/api/runs', expect.objectContaining({
+    method: 'POST', headers: expect.objectContaining({ 'X-CSRF-Token': 'csrf' }),
+    body: expect.stringContaining('"llm_model":"DeepSeek-V4-Pro"'),
+  }))
+  expect(await screen.findByText(/LLM model: DeepSeek-V4-Pro/, { selector: '.job-model' })).toBeInTheDocument()
+})
+
+test('requires a choice without a valid server default and permits retry after models fail', async () => {
+  let reads = 0
+  vi.mocked(fetch).mockImplementation((input: RequestInfo | URL) => {
+    const url = String(input)
+    if (url.endsWith('/api/session')) return ok({ username: 'analyst', csrf_token: 'csrf' })
+    if (url.endsWith('/api/models')) return ++reads === 1 ? ok({ detail: 'Unavailable' }, 503) : ok({ models: ['qwen3.8-max'], default_model: null })
+    if (url.endsWith('/api/runs')) return ok([])
+    return ok({})
+  })
+  render(<App />)
+  const start = await screen.findByRole('button', { name: /run analysis/i })
+  expect(start).toBeDisabled()
+  expect(await screen.findByRole('alert')).toHaveTextContent('Unavailable')
+  await userEvent.click(screen.getByRole('button', { name: 'Retry' }))
+  const model = screen.getByRole('combobox', { name: 'LLM model' })
+  await waitFor(() => expect(model).toBeEnabled())
+  expect(model).toHaveValue('')
+  expect(start).toBeDisabled()
+  await userEvent.selectOptions(model, 'qwen3.8-max')
+  expect(start).toBeEnabled()
+})
+
+test('shows saved model from list and detail, with a legacy fallback in both places', async () => {
+  const reports = [
+    { id: 'one', ticker: 'AMD', analysis_date: '2026-09-24', depth: 3, status: 'done', rating: 'Buy', created_at: '2026-09-24', llm_model: 'gemini-3.8-flash-high' },
+    { id: 'two', ticker: 'MU', analysis_date: '2026-09-23', depth: 3, status: 'done', rating: 'Hold', created_at: '2026-09-23' },
+  ]
+  vi.mocked(fetch).mockImplementation((input: RequestInfo | URL) => {
+    const url = String(input)
+    if (url.endsWith('/api/session')) return ok({ username: 'analyst', csrf_token: 'csrf' })
+    if (url.endsWith('/api/runs')) return ok(reports)
+    if (url.endsWith('/api/runs/one')) return ok({ ...reports[0], sections: {} })
+    if (url.endsWith('/api/runs/two')) return ok({ ...reports[1], sections: {} })
+    return ok({})
+  })
+  render(<App />)
+  await userEvent.click(await screen.findByRole('button', { name: /show AMD report dates/i }))
+  expect(screen.getByText('LLM model: gemini-3.8-flash-high', { selector: '.history-model' })).toBeInTheDocument()
+  await userEvent.click(screen.getByRole('button', { name: /open AMD/i }))
+  expect(await screen.findByText('gemini-3.8-flash-high', { selector: '.report-model' })).toBeInTheDocument()
+  await userEvent.click(screen.getByRole('button', { name: /show MU report dates/i }))
+  expect(screen.getByText('LLM model: Not available', { selector: '.history-model' })).toBeInTheDocument()
+  await userEvent.click(screen.getByRole('button', { name: /open MU/i }))
+  expect(await screen.findByText('Not available', { selector: '.report-model' })).toBeInTheDocument()
 })

@@ -11,6 +11,7 @@ from fastapi.testclient import TestClient
 
 from tradingagents.web.app import create_app
 from tradingagents.web.runs import (
+    LLM_MODELS,
     AnalysisRequest,
     RunManager,
     delete_run,
@@ -57,12 +58,14 @@ def test_history_scans_legacy_reports_and_never_invents_metadata(tmp_path, monke
     assert runs[0]["ticker"] == "AMD"
     assert runs[0]["rating"] == "Buy"
     assert runs[0]["depth"] == "Not available"
+    assert runs[0]["llm_model"] is None
 
     with _client(tmp_path, monkeypatch) as client:
         _login(client)
         history = client.get("/api/runs").json()
         run_id = history[0]["id"]
         report = client.get(f"/api/runs/{run_id}").json()
+        assert report["llm_model"] is None
         assert report["sections"]["market_report"].startswith("# Market")
         raw = client.get(f"/api/runs/{run_id}/raw/market_report")
         assert raw.headers["content-type"].startswith("text/markdown")
@@ -95,6 +98,9 @@ def test_remove_run_requires_csrf_and_preserves_files_and_sibling_dates(tmp_path
         assert (results / "AMD" / "2026-09-23" / "reports").is_dir()
         assert [run["analysis_date"] for run in client.get("/api/runs").json()] == [
             "2026-09-23"
+        ]
+        assert client.get("/api/overview").json()["timeline"] == [
+            {"analysis_date": "2026-09-23", "buy": 0, "hold": 1, "sell": 0, "unknown": 0}
         ]
         assert client.delete(
             f"/api/runs/{target['id']}", headers={"X-CSRF-Token": csrf}
@@ -171,6 +177,10 @@ def test_overview_allocates_only_latest_positive_decisions(tmp_path, monkeypatch
         assert overview.status_code == 200
         body = overview.json()
         assert body["counts"] == {"buy": 1, "hold": 1, "sell": 1, "unknown": 0}
+        assert body["timeline"] == [
+            {"analysis_date": "2026-09-23", "buy": 1, "hold": 0, "sell": 0, "unknown": 0},
+            {"analysis_date": "2026-09-24", "buy": 1, "hold": 1, "sell": 1, "unknown": 0},
+        ]
         assert [row["ticker"] for row in body["rows"]] == ["MU", "AMD", "AAPL"]
         assert body["budget"] == 105 and body["cash"] == 55
         assert sum(row["allocation"] for row in body["rows"]) + body["cash"] == body["budget"]
@@ -192,6 +202,37 @@ def test_overview_empty_history_is_cash_only(tmp_path, monkeypatch):
         assert body["rows"] == []
         assert body["cash"] == body["budget"] == 105
         assert body["counts"] == {"buy": 0, "hold": 0, "sell": 0, "unknown": 0}
+        assert body["timeline"] == []
+
+
+def test_timeline_uses_analysis_date_and_deduplicates_latest_ticker_day(tmp_path, monkeypatch):
+    root = tmp_path / "results"
+    fixtures = [
+        ("AAA", "2026-09-22", "Hold", "2026-09-25T09:00:00+00:00", "done"),
+        ("AAA", "2026-09-23", "Buy", "2026-09-25T10:00:00+00:00", "done"),
+        ("BBB", "2026-09-23", "Underweight", "2026-09-25T11:00:00+00:00", "done"),
+        ("CCC", "2026-09-23", "Decision pending", "2026-09-25T12:00:00+00:00", "done"),
+        ("DDD", "2026-09-23", "Sell", "2026-09-25T13:00:00+00:00", "failed"),
+    ]
+    for ticker, day, rating, created, status in fixtures:
+        report = root / ticker / day / "reports"
+        report.mkdir(parents=True)
+        (report / "final_trade_decision.md").write_text(f"Rating: {rating}")
+        (report.parent / "metadata.json").write_text(json.dumps({"created_at": created, "status": status}))
+    duplicate = root / ".web-runs" / "older-copy" / "reports"
+    duplicate.mkdir(parents=True)
+    (duplicate / "final_trade_decision.md").write_text("Rating: Hold")
+    (duplicate.parent / "metadata.json").write_text(json.dumps({
+        "ticker": "AAA", "analysis_date": "2026-09-23", "created_at": "2026-09-25T08:00:00+00:00",
+    }))
+
+    with _client(tmp_path, monkeypatch) as client:
+        _login(client)
+        timeline = client.get("/api/overview").json()["timeline"]
+        assert timeline == [
+            {"analysis_date": "2026-09-22", "buy": 0, "hold": 1, "sell": 0, "unknown": 0},
+            {"analysis_date": "2026-09-23", "buy": 1, "hold": 0, "sell": 1, "unknown": 1},
+        ]
 
 
 def test_overview_weights_buy_and_overweight_in_a_monthly_target(tmp_path, monkeypatch):
@@ -623,6 +664,82 @@ def test_crypto_run_omits_fundamentals_and_propagates_asset_type(tmp_path):
 
     assert captured["analysts"] == ["market", "social", "news"]
     assert captured["asset_type"] == "crypto"
+
+
+def test_model_catalogue_requires_login_and_validates_exact_selection(tmp_path, monkeypatch):
+    monkeypatch.setenv("TRADINGAGENTS_QUICK_THINK_LLM", "glm-5.3")
+    monkeypatch.setenv("TRADINGAGENTS_DEEP_THINK_LLM", "glm-5.3")
+    with _client(tmp_path, monkeypatch, executor=_write_result) as client:
+        assert client.get("/api/models").status_code == 401
+        csrf = _login(client)
+        assert client.get("/api/models").json() == {
+            "models": list(LLM_MODELS), "default_model": "glm-5.3"
+        }
+        assert list(LLM_MODELS) == [
+            "deepseek-v4-pro-0813", "deepseek-v4.1-flash", "DeepSeek-V4-Pro",
+            "gemini-3.8-flash-high", "glm-5.3", "glm-5.3-flash",
+            "gpt-6-luna", "muse-spark-1.3-free", "qwen3.8-max",
+        ]
+        payload = {"ticker": "AMD", "analysis_date": "2026-09-24", "depth": 1}
+        for invalid in ("GLM-5.3", "gpt-4o", "glm-5.3 "):
+            response = client.post("/api/runs", json={**payload, "llm_model": invalid}, headers={"X-CSRF-Token": csrf})
+            assert response.status_code == 422
+        response = client.post("/api/runs", json={**payload, "llm_model": "DeepSeek-V4-Pro"}, headers={"X-CSRF-Token": csrf})
+        assert response.status_code == 202
+        assert response.json()["llm_model"] == "DeepSeek-V4-Pro"
+        job_id = response.json()["id"]
+        assert client.app.state.manager.jobs[job_id].finished.wait(5)
+        history = client.get("/api/runs").json()
+        assert history[0]["llm_model"] == "DeepSeek-V4-Pro"
+        assert client.get(f"/api/runs/{history[0]['id']}").json()["llm_model"] == "DeepSeek-V4-Pro"
+
+
+def test_each_run_retains_its_selected_model_without_changing_the_next_run(tmp_path, monkeypatch):
+    with _client(tmp_path, monkeypatch, executor=_write_result) as client:
+        csrf = _login(client)
+        for ticker, model in (("AMD", "glm-5.3-flash"), ("MU", "qwen3.8-max")):
+            response = client.post("/api/runs", json={
+                "ticker": ticker, "analysis_date": "2026-09-24", "depth": 1, "llm_model": model,
+            }, headers={"X-CSRF-Token": csrf})
+            assert response.status_code == 202
+            assert response.json()["llm_model"] == model
+            assert client.app.state.manager.jobs[response.json()["id"]].finished.wait(5)
+        assert {item["ticker"]: item["llm_model"] for item in client.get("/api/runs").json()} == {
+            "AMD": "glm-5.3-flash", "MU": "qwen3.8-max",
+        }
+
+
+def test_existing_clients_without_a_selection_use_the_configured_model(tmp_path, monkeypatch):
+    monkeypatch.setenv("TRADINGAGENTS_QUICK_THINK_LLM", "deepseek-v4.1-flash")
+    monkeypatch.setenv("TRADINGAGENTS_DEEP_THINK_LLM", "deepseek-v4.1-flash")
+    with _client(tmp_path, monkeypatch, executor=_write_result) as client:
+        csrf = _login(client)
+        response = client.post("/api/runs", json={
+            "ticker": "AMD", "analysis_date": "2026-09-24", "depth": 1,
+        }, headers={"X-CSRF-Token": csrf})
+        assert response.status_code == 202
+        assert response.json()["llm_model"] == "deepseek-v4.1-flash"
+        assert client.app.state.manager.jobs[response.json()["id"]].finished.wait(5)
+        assert client.get("/api/runs").json()[0]["llm_model"] == "deepseek-v4.1-flash"
+
+
+def test_selected_model_overrides_both_graph_model_roles(tmp_path, monkeypatch):
+    monkeypatch.setenv("TRADINGAGENTS_QUICK_THINK_LLM", "old-quick")
+    monkeypatch.setenv("TRADINGAGENTS_DEEP_THINK_LLM", "old-deep")
+    recorded = {}
+
+    class FakeGraph:
+        def __init__(self, analysts, config, debug):
+            recorded.update(config)
+
+        def propagate(self, ticker, analysis_date, asset_type="stock", on_chunk=None):
+            return {"final_trade_decision": "Rating: Hold"}, "Hold"
+
+    execute_analysis(
+        AnalysisRequest(ticker="AMD", analysis_date="2026-09-24", depth=1, llm_model="gpt-6-luna"),
+        tmp_path, lambda *_: None, graph_factory=FakeGraph,
+    )
+    assert recorded["quick_think_llm"] == recorded["deep_think_llm"] == "gpt-6-luna"
 
 
 def _request(ticker="AMD"):
