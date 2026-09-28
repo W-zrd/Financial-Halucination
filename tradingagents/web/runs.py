@@ -337,7 +337,7 @@ def execute_analysis(
     })
     emit("analysis", "Starting all applicable analysts")
     graph = factory(analysts, config=config, debug=False)
-    seen_agent_content: set[str] = set()
+    seen_agent_content: set[tuple[str, str]] = set()
     seen_stages: set[str] = set()
     stage_names = {
         "market_report": "Market analysis complete",
@@ -349,18 +349,30 @@ def execute_analysis(
         "final_trade_decision": "Risk review complete",
     }
 
+    stage_speakers = {
+        "market_report": "Market analyst",
+        "sentiment_report": "Social sentiment analyst",
+        "news_report": "News analyst",
+        "fundamentals_report": "Fundamentals analyst",
+        "trader_investment_plan": "Trader",
+    }
+
     def emit_agent(label: str, value) -> None:
         content = str(value or "").strip()
-        if not content or content in seen_agent_content:
+        if not content or (label, content) in seen_agent_content:
             return
-        seen_agent_content.add(content)
-        emit("agent", f"{label}: {content}" if label else content)
+        seen_agent_content.add((label, content))
+        if label:
+            seen_agent_content.add(("", content))
+        emit("agent" if label else "trace", f"{label}: {content}" if label else content)
 
     def on_chunk(chunk: dict) -> None:
         for key, label in stage_names.items():
             if chunk.get(key) and key not in seen_stages:
                 seen_stages.add(key)
                 emit("stage", label)
+                if key in stage_speakers:
+                    emit_agent(stage_speakers[key], chunk[key])
         for message in chunk.get("messages") or ():
             emit_agent("", getattr(message, "content", ""))
 

@@ -655,10 +655,49 @@ def test_analysis_config_is_env_fixed_english_and_depth_controls_both_rounds(tmp
     assert captured["config"]["quick_think_llm"] == "quick-fixed"
     assert captured["config"]["llm_max_retries"] == 15
     assert captured["config"]["checkpoint_enabled"] is True
-    assert ("agent", "Bull and bear agents are discussing AMD") in emitted
+    assert ("trace", "Bull and bear agents are discussing AMD") in emitted
     assert emitted.count(("agent", "Research debate: Valuation supports upside")) == 1
     assert ("agent", "Aggressive risk analyst: Take the opportunity") in emitted
     assert ("agent", "Portfolio manager: Keep position sizing disciplined") in emitted
+
+
+def test_live_events_attribute_reports_and_debates_to_real_roles(tmp_path):
+    class FakeGraph:
+        def __init__(self, analysts, config, debug):
+            pass
+
+        def propagate(self, ticker, analysis_date, asset_type="stock", on_chunk=None):
+            assert on_chunk is not None
+            on_chunk({"market_report": "Technical findings", "messages": [type("Message", (), {"content": "Technical findings"})()]})
+            on_chunk({"sentiment_report": "Social mood"})
+            on_chunk({"news_report": "Macro coverage"})
+            on_chunk({"fundamentals_report": "Balance sheet"})
+            on_chunk({"messages": [type("Message", (), {"content": "Unattributed thought"})()]})
+            on_chunk({"investment_debate_state": {"current_response": "Bull case", "bull_history": "Bull case"}})
+            on_chunk({"investment_debate_state": {"judge_decision": "Research verdict"}})
+            on_chunk({"trader_investment_plan": "Trade proposal"})
+            on_chunk({"risk_debate_state": {"current_neutral_response": "Risk balance", "judge_decision": "Final sizing"}})
+            return {"final_trade_decision": "Rating: Hold"}, "Hold"
+
+    emitted = []
+    execute_analysis(
+        AnalysisRequest(ticker="AMD", analysis_date="2026-09-24", depth=1),
+        tmp_path, lambda kind, message: emitted.append((kind, message)), graph_factory=FakeGraph,
+    )
+    for label, content in (
+        ("Market analyst", "Technical findings"),
+        ("Social sentiment analyst", "Social mood"),
+        ("News analyst", "Macro coverage"),
+        ("Fundamentals analyst", "Balance sheet"),
+        ("Bull researcher", "Bull case"),
+        ("Research manager", "Research verdict"),
+        ("Trader", "Trade proposal"),
+        ("Neutral risk analyst", "Risk balance"),
+        ("Portfolio manager", "Final sizing"),
+    ):
+        assert ("agent", f"{label}: {content}") in emitted
+    assert ("trace", "Unattributed thought") in emitted
+    assert ("trace", "Technical findings") not in emitted
 
 
 def test_crypto_run_omits_fundamentals_and_propagates_asset_type(tmp_path):

@@ -1,4 +1,4 @@
-import { act, cleanup, render, screen, waitFor } from '@testing-library/react'
+import { act, cleanup, render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { afterEach, beforeEach, expect, test, vi } from 'vitest'
 import App from './App'
@@ -777,6 +777,56 @@ test('force stop calls the cancel API with CSRF and marks the run cancelled', as
 
   expect(fetch).toHaveBeenCalledWith('/api/jobs/job-stop/cancel', expect.objectContaining({ method: 'POST', headers: expect.objectContaining({ 'X-CSRF-Token': 'csrf' }) }))
   expect(await screen.findByText('CANCELLED')).toBeInTheDocument()
+})
+
+test('places known speakers in five live role areas and keeps anonymous output in run activity', async () => {
+  class LiveEventSource {
+    static instance: LiveEventSource
+    onmessage: ((event: MessageEvent) => void) | null = null
+    constructor() { LiveEventSource.instance = this }
+    close() {}
+    emit(type: string, message: string) {
+      this.onmessage?.({ data: JSON.stringify({ id: 'job-live', status: 'running', type, message }) } as MessageEvent)
+    }
+  }
+  vi.stubGlobal('EventSource', LiveEventSource)
+  vi.mocked(fetch).mockImplementation((input: RequestInfo | URL) => {
+    const url = String(input)
+    if (url.endsWith('/api/session')) return ok({ username: 'analyst', csrf_token: 'csrf' })
+    if (url.endsWith('/api/jobs')) return ok([{ id: 'job-live', ticker: 'AMD', analysis_date: '2026-09-24', depth: 3, status: 'running', elapsed_seconds: 1 }])
+    if (url.endsWith('/api/runs')) return ok([])
+    return ok({})
+  })
+  render(<App />)
+  await userEvent.click(await screen.findByRole('button', { name: /^live runs/i }))
+  expect(await screen.findByRole('heading', { name: 'AMD analysis' })).toBeInTheDocument()
+  for (const [type, message] of [
+    ['agent', 'Market analyst: Technical evidence'],
+    ['stage', 'Market analysis complete'],
+    ['agent', 'Bull researcher: Upside case'],
+    ['agent', 'Research manager: Weighing both sides'],
+    ['agent', 'Trader: Proposed trade'],
+    ['agent', 'Neutral risk analyst: Sizing caution'],
+    ['agent', 'Portfolio manager: Final decision'],
+    ['stage', 'Risk review complete'],
+    ['trace', 'Trader: Unattributed model text'],
+    ['warning', 'Stream recovering'],
+  ]) act(() => LiveEventSource.instance.emit(type, message))
+  for (const [area, line] of [
+    ['Analysts', 'Technical evidence'],
+    ['Researchers', 'Upside case'],
+    ['Managers', 'Weighing both sides'],
+    ['Trader', 'Proposed trade'],
+    ['Risk management', 'Sizing caution'],
+  ]) expect(within(screen.getByRole('region', { name: area })).getByText(line)).toBeInTheDocument()
+  expect(within(screen.getByRole('region', { name: 'Analysts' })).getByText('Market analysis complete')).toBeInTheDocument()
+  expect(within(screen.getByRole('region', { name: 'Managers' })).getByText('Final decision')).toBeInTheDocument()
+  expect(within(screen.getByRole('region', { name: 'Risk management' })).getByText('Risk review complete')).toBeInTheDocument()
+  const activity = within(screen.getByRole('log', { name: /AMD live activity/i })).getByRole('region', { name: 'System and unassigned activity' })
+  expect(within(activity).getByText('Trader: Unattributed model text')).toBeInTheDocument()
+  expect(within(activity).getByText('Stream recovering')).toBeInTheDocument()
+  expect(within(screen.getByRole('region', { name: 'Trader' })).queryByText(/Unattributed model text/)).not.toBeInTheDocument()
+  expect(screen.getByRole('log', { name: /AMD live activity/i })).toBeInTheDocument()
 })
 
 test('keeps SSE open for native reconnect and shows production event fields', async () => {

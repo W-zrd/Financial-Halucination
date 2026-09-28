@@ -31,6 +31,27 @@ type Job = {
 type LiveEvent = { message: string; eventType?: string }
 type ActiveJob = Job & { events: LiveEvent[]; connection?: 'connecting' | 'live' | 'reconnecting' | 'disconnected' }
 
+const roleAreas = [
+  { title: 'Analysts', speakers: ['Market analyst', 'Social sentiment analyst', 'News analyst', 'Fundamentals analyst'], stages: ['Market analysis complete', 'Social sentiment analysis complete', 'News analysis complete', 'Fundamentals analysis complete'] },
+  { title: 'Researchers', speakers: ['Bull researcher', 'Bear researcher', 'Research debate'], stages: [] },
+  { title: 'Managers', speakers: ['Research manager', 'Portfolio manager'], stages: ['Research debate complete'] },
+  { title: 'Trader', speakers: ['Trader'], stages: ['Trading plan complete'] },
+  { title: 'Risk management', speakers: ['Aggressive risk analyst', 'Conservative risk analyst', 'Neutral risk analyst'], stages: ['Risk review complete'] },
+]
+
+function describeLiveEvent(entry: LiveEvent) {
+  if (entry.eventType === 'stage') {
+    return { area: roleAreas.find(role => role.stages.includes(entry.message))?.title || 'Run activity', speaker: 'Stage', text: entry.message }
+  }
+  if (entry.eventType === 'agent') {
+    for (const role of roleAreas) {
+      const speaker = role.speakers.find(name => entry.message.startsWith(`${name}: `))
+      if (speaker) return { area: role.title, speaker, text: entry.message.slice(speaker.length + 2) }
+    }
+  }
+  return { area: 'Run activity', speaker: entry.eventType || 'Update', text: entry.message }
+}
+
 const depths = [
   { value: 1, name: 'Quick', meaning: 'Quick research, few debate and strategy discussion rounds' },
   { value: 3, name: 'Medium', meaning: 'Middle ground, moderate debate rounds and strategy discussion' },
@@ -574,6 +595,11 @@ export default function App() {
 
 function JobCard({ job, onStop, onReconnect }: { job: ActiveJob; onStop: () => void; onReconnect: () => void }) {
   const stoppable = job.status === 'queued' || job.status === 'running'
+  const entries = job.events.map((event, index) => ({ ...describeLiveEvent(event), eventType: event.eventType, index }))
+  const forArea = (area: string) => entries.filter(entry => entry.area === area)
+  const renderEntries = (area: string) => forArea(area).map(entry => <div className={`activity-line event-${entry.eventType || 'update'}`} key={entry.index}>
+    <div className="activity-entry"><b>{entry.speaker}<span>#{String(entry.index + 1).padStart(2, '0')}</span></b><p>{entry.text}</p></div>
+  </div>)
   return <article className={`job-card status-${job.status}`}>
     <div className="job-head">
       <div><span className="job-kicker">{job.analysis_date} · DEPTH {job.depth}</span><h3>{job.ticker} analysis</h3></div>
@@ -584,13 +610,16 @@ function JobCard({ job, onStop, onReconnect }: { job: ActiveJob; onStop: () => v
       {job.connection === 'live' ? 'Live connection' : `${job.connection === 'disconnected' ? 'Disconnected' : job.connection === 'reconnecting' ? 'Reconnecting' : 'Connecting'} — showing last received state`}
       {job.connection === 'disconnected' && <button className="ghost" onClick={onReconnect}>Reconnect stream</button>}
     </div>}
-    <div className="activity-header"><span>AGENT TIMELINE</span><span>{job.events.length} {job.events.length === 1 ? 'EVENT' : 'EVENTS'}</span></div>
-    <div className="activity-stream" role="log" aria-live="polite" aria-label={`${job.ticker} live activity`} tabIndex={0}>
-      {job.events.length ? job.events.map((entry, index) => <div className={`activity-line event-${entry.eventType || 'update'}`} key={`${index}-${entry.message}`}>
-        <div className="activity-node"><span>{String(index + 1).padStart(2, '0')}</span></div>
-        <div className="activity-entry"><b>{String(entry.eventType || 'update').replaceAll('_', ' ')}</b><p>{entry.message}</p></div>
-      </div>) : <p className="stream-empty">Waiting for agent output…</p>}
-      {job.error && <p className="error">{job.error}</p>}
+    <div className="activity-header"><span>AGENT DISCUSSION</span><span>{job.events.length} {job.events.length === 1 ? 'EVENT' : 'EVENTS'}</span></div>
+    <div className="activity-stream role-board" role="log" aria-live="polite" aria-label={`${job.ticker} live activity`} tabIndex={0}>
+      <section className="role-panel role-operations" aria-label="System and unassigned activity">
+        <header><h4>System &amp; unassigned</h4><span>{forArea('Run activity').length}</span></header>
+        <div className="role-messages">{renderEntries('Run activity')}{!job.events.length && <p className="stream-empty">Waiting for agent output…</p>}{job.error && <p className="error">{job.error}</p>}</div>
+      </section>
+      <div className="role-grid">{roleAreas.map(role => <section className="role-panel" aria-label={role.title} key={role.title}>
+        <header><h4>{role.title}</h4><span>{forArea(role.title).length}</span></header>
+        <div className="role-messages">{forArea(role.title).length ? renderEntries(role.title) : <p className="stream-empty">Waiting for {role.title.toLowerCase()}…</p>}</div>
+      </section>)}</div>
     </div>
     {stoppable && <button className="stop-button" onClick={onStop} aria-label={`Stop ${job.ticker} analysis`}>Force stop</button>}
   </article>

@@ -143,6 +143,9 @@ input:hover, select:hover { border-color: var(--muted); }
 .section-number { color: var(--blue); font: 11px var(--mono); }
 .section-title h2 { margin: 10px 0; font-size: 30px; }
 .section-title p { margin: 0; color: var(--muted); font-size: 14px; line-height: 1.6; }
+.output .active-runs { padding-top: 18px; }
+.active-runs > .section-title { display: flex; align-items: end; justify-content: space-between; flex-wrap: wrap; gap: 6px 20px; margin-bottom: 12px; }
+.active-runs > .section-title h2 { margin: 2px 0 0; }
 .grid-two { display: grid; grid-template-columns: 1fr 1fr; gap: 24px; }
 .analysis-date-input { min-height: 48px; cursor: pointer; }
 .model-field { display: grid; gap: 9px; margin-top: 24px; color: var(--muted); font: 12px var(--mono); }
@@ -171,19 +174,25 @@ legend { margin-bottom: 12px; color: var(--muted); font: 12px var(--mono); }
 .job-meta { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 10px 20px; padding: 10px 24px; color: var(--muted); border-block: 1px solid var(--line); font: 10px var(--mono); overflow-wrap: anywhere; }
 .job-model { min-width: 0; }
 .connection-status { display: flex; align-items: center; justify-content: space-between; gap: 12px; min-height: 42px; padding: 8px 24px; color: var(--muted); background: var(--paper-alt); font: 11px/1.5 var(--mono); }
-.activity-header { min-height: 40px; display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 0 24px; color: var(--muted); border-bottom: 1px solid var(--line); font: 9px var(--mono); letter-spacing: .06em; }
-.activity-stream { height: clamp(220px, 42vh, 560px); overflow-y: auto; overscroll-behavior: contain; background: var(--paper-alt); }
-.activity-line { position: relative; display: grid; grid-template-columns: 54px minmax(0, 1fr); padding: 16px 24px 16px 0; }
-.activity-line:not(:last-child)::before { content: ''; position: absolute; top: 34px; bottom: -10px; left: 26px; width: 1px; background: var(--line); }
-.activity-node { position: relative; z-index: 1; display: flex; justify-content: center; }
-.activity-node span { width: 26px; height: 26px; display: grid; place-items: center; color: var(--muted); background: var(--paper); border: 1px solid var(--line); font: 8px var(--mono); }
-.activity-entry { padding: 13px 16px 14px; background: var(--paper); border: 1px solid var(--line); }
-.activity-line b { display: block; margin-bottom: 7px; color: var(--blue); font: 500 9px var(--mono); letter-spacing: .06em; text-transform: uppercase; }
-.activity-line p { margin: 0; color: var(--ink); font: 12px/1.7 var(--mono); overflow-wrap: anywhere; }
-.activity-line.event-stage .activity-node span, .activity-line.event-report .activity-node span { color: var(--green); border-color: var(--green); }
-.activity-line.event-control .activity-node span { color: var(--blue); border-color: var(--blue); }
-.activity-line.event-error .activity-node span, .activity-line.event-warning .activity-node span { color: var(--red); border-color: var(--red); }
-.activity-line.event-error .activity-entry, .activity-line.event-warning .activity-entry { background: var(--red-soft); }
+.activity-header { min-height: 34px; display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 0 14px; color: var(--muted); border-bottom: 1px solid var(--line); font: 9px var(--mono); letter-spacing: .06em; }
+.role-board { display: grid; gap: 12px; height: auto; min-height: 0; padding: 12px; overflow: visible; background: var(--paper-alt); }
+.role-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+.role-panel { min-width: 0; border: 1px solid var(--line); background: var(--paper); }
+.role-panel > header { display: flex; justify-content: space-between; align-items: center; gap: 12px; padding: 10px 14px; border-bottom: 1px solid var(--line); }
+.role-panel h4 { margin: 0; color: var(--ink); font-size: 14px; }
+.role-panel > header span { color: var(--muted); font: 11px var(--mono); }
+.role-messages { max-height: 320px; overflow-y: auto; overscroll-behavior: contain; }
+.role-operations .role-messages { max-height: 160px; }
+.role-panel .activity-entry { padding: 11px 14px; background: var(--paper); border: 0; border-bottom: 1px solid var(--line); }
+.role-panel .activity-line:last-child .activity-entry { border-bottom: 0; }
+.role-panel .activity-line b { display: flex; justify-content: space-between; gap: 12px; margin-bottom: 5px; color: var(--blue); font: 500 10px var(--mono); }
+.role-panel .activity-line b span { color: var(--muted); font-weight: 400; }
+.role-panel .activity-line p { margin: 0; color: var(--ink); font: 12px/1.55 var(--mono); white-space: pre-wrap; overflow-wrap: anywhere; }
+.role-panel .event-stage .activity-entry { background: var(--paper-alt); }
+.role-panel .event-error .activity-entry, .role-panel .event-warning .activity-entry { background: var(--red-soft); }
+.role-panel .event-error b, .role-panel .event-warning b { color: var(--red); }
+.role-panel .stream-empty { padding: 12px 14px; }
+@media (max-width: 760px) { .role-grid { grid-template-columns: 1fr; } }
 .stop-button { min-height: 46px; width: 100%; padding: 12px; color: var(--red); background: var(--paper); border: 0; border-top: 1px solid var(--line); font: 500 11px var(--mono); }
 .stop-button:hover { background: var(--red-soft); }
 .open-report { margin-top: 18px; }
@@ -302,7 +311,6 @@ legend { margin-bottom: 12px; color: var(--muted); font: 12px var(--mono); }
   .run-button { width: 100%; }
   .job-head { padding: 18px 16px; }
   .job-meta, .connection-status { padding-inline: 16px; }
-  .activity-stream { height: 38vh; min-height: 220px; }
   .report-section { scroll-margin-top: 180px; }
   .verdict { align-items: start; flex-direction: column; padding: 22px 18px; }
   .section-head { padding: 8px 16px; }
