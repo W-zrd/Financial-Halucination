@@ -22,24 +22,22 @@
   --markdown-ink: #242432;
   --mono: 'IBM Plex Mono', monospace;
 }
-@media (prefers-color-scheme: dark) {
-  :root {
-    color-scheme: dark;
-    --canvas: #0D2F86;
-    --paper: #12378F;
-    --paper-alt: #09286F;
-    --surface-hover: #1B45A4;
-    --ink: #FFE6CB;
-    --muted: #B5C7F3;
-    --line: #3158AD;
-    --blue: #FFE6CB;
-    --blue-soft: #1540B1;
-    --green: #a6edbd;
-    --red: #ffb3bd;
-    --red-soft: #5d274b;
-    --on-primary: #0D2F86;
-    --markdown-ink: #FFE6CB;
-  }
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --canvas: #0D2F86;
+  --paper: #12378F;
+  --paper-alt: #09286F;
+  --surface-hover: #1B45A4;
+  --ink: #FFE6CB;
+  --muted: #B5C7F3;
+  --line: #3158AD;
+  --blue: #FFE6CB;
+  --blue-soft: #1540B1;
+  --green: #a6edbd;
+  --red: #ffb3bd;
+  --red-soft: #5d274b;
+  --on-primary: #0D2F86;
+  --markdown-ink: #FFE6CB;
 }
 * { box-sizing: border-box; }
 [hidden] { display: none !important; }
@@ -70,6 +68,8 @@ input:hover, select:hover { border-color: var(--muted); }
 .brand-mark { width: 34px; height: 34px; display: grid; place-items: center; color: var(--blue); }
 .brand-icon { width: 30px; height: 30px; }
 .brand h1 { margin: 4px 0 0; font-size: 21px; line-height: 1; }
+.mobile-menu-toggle { display: none; }
+.theme-toggle { min-width: 44px; font-size: 18px; }
 .eyebrow, .panel-title, .output-bar, .job-kicker, .report-toc > span { color: var(--muted); font: 500 10px var(--mono); letter-spacing: .06em; }
 .session { display: flex; align-items: center; gap: 10px; color: var(--muted); font: 11px var(--mono); }
 .status-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--green); }
@@ -264,20 +264,22 @@ legend { margin-bottom: 12px; color: var(--muted); font: 12px var(--mono); }
   .report-visuals { grid-template-columns: 1fr; padding: 16px; }
   html { scroll-padding-top: 130px; }
   .topbar { height: 60px; padding: 0 16px; }
-  .brand .eyebrow, .session > span { display: none; }
+  .brand-copy, .session > span { display: none; }
   .brand { min-width: 0; gap: 8px; }
   .brand-mark { flex: none; }
-  .brand h1 { font-size: 17px; line-height: 1.1; }
-  .session { flex: none; }
+  .mobile-menu-toggle { display: grid; place-items: center; width: 44px; height: 44px; padding: 0; color: var(--blue); background: var(--paper); border: 1px solid var(--line); font-size: 24px; }
+  .session { flex: none; gap: 2px; }
   .workspace { display: block; }
-  .command-sidebar { position: sticky; top: 60px; z-index: 15; height: auto; overflow: visible; border: 0; background: var(--canvas); }
-  .workspace-nav { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 4px; padding: 6px 8px; background: var(--canvas); }
-  .history-tickers { top: 164px; scroll-margin-top: 174px; }
-  .report-toolbar { top: 164px; }
+  .command-sidebar { position: sticky; top: 60px; z-index: 15; height: 0; overflow: visible; border: 0; background: var(--canvas); }
+  .view-jobs .command-sidebar { height: auto; }
+  .workspace-nav { position: absolute; top: 0; left: 8px; right: 8px; display: none; grid-template-columns: 1fr; gap: 4px; padding: 8px; background: var(--paper); border: 1px solid var(--line); box-shadow: 0 16px 30px color-mix(in srgb, var(--ink) 14%, transparent); }
+  .workspace-nav.mobile-open { display: grid; }
+  .history-tickers { top: 60px; scroll-margin-top: 70px; }
+  .report-toolbar { top: 60px; }
   .report-toolbar > span { display: none; }
   .report-toolbar select { flex: 1 1 auto; max-width: 145px; }
-  .workspace-nav button { padding: 8px; font-size: 12px; }
-  .workspace-nav button span { font-size: 10px; }
+  .workspace-nav button { padding: 10px 12px; font-size: 13px; }
+  .workspace-nav button span { font-size: 11px; }
   .queue-panel, .sidebar-note { display: none; }
   .view-jobs .queue-panel { display: block; border-bottom: 1px solid var(--line); background: var(--paper-alt); }
   .queue-panel .panel-title { display: none; }
@@ -289,8 +291,8 @@ legend { margin-bottom: 12px; color: var(--muted); font: 12px var(--mono); }
   .history-bar-row { grid-template-columns: minmax(70px, 100px) minmax(0, 1fr) 24px; }
   .history-pages { justify-content: center; }
   .history-pages span { order: -1; width: 100%; text-align: center; }
-  .report-reader { scroll-margin-top: 174px; }
-  .report-toc { top: 226px; }
+  .report-reader { scroll-margin-top: 70px; }
+  .report-toc { top: 122px; }
   .command-panel, .active-runs, .report-area { padding: 24px 16px; }
   .output-bar { padding: 0 16px; min-height: 38px; font-size: 9px; }
   .output-bar > span:last-child { display: none; }
@@ -301,7 +303,7 @@ legend { margin-bottom: 12px; color: var(--muted); font: 12px var(--mono); }
   .job-head { padding: 18px 16px; }
   .job-meta, .connection-status { padding-inline: 16px; }
   .activity-stream { height: 38vh; min-height: 220px; }
-  .report-section { scroll-margin-top: 282px; }
+  .report-section { scroll-margin-top: 180px; }
   .verdict { align-items: start; flex-direction: column; padding: 22px 18px; }
   .section-head { padding: 8px 16px; }
   .markdown, .report-section pre { padding: 22px 18px; }

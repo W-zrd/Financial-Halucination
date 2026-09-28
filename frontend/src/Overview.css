@@ -66,7 +66,14 @@
 .overview-timeline-legend { display: flex; flex-wrap: wrap; gap: 8px 18px; margin: 18px 0 12px; font: 11px var(--mono); }
 .overview-legend-item { display: inline-flex; align-items: center; gap: 7px; }
 .overview-legend-item i { width: 15px; height: 3px; background: currentColor; }
+.overview-chart-frame { position: relative; min-width: 0; }
 .overview-timeline-scroll { max-width: 100%; overflow-x: auto; background: var(--paper-alt); border: 1px solid var(--line); }
+.overview-date-hit { cursor: crosshair; }
+.overview-chart-tooltip { position: absolute; z-index: 2; top: 8px; left: 8px; display: grid; gap: 5px; width: min(260px, calc(100% - 16px)); padding: 8px 10px; pointer-events: none; color: var(--ink); background: var(--paper); border: 1px solid var(--line); box-shadow: 0 8px 22px color-mix(in srgb, var(--ink) 12%, transparent); font: 11px/1.3 var(--mono); }
+.overview-chart-tooltip > strong { color: var(--blue); }
+.overview-chart-tooltip > div { display: flex; justify-content: space-between; gap: 8px; }
+.overview-chart-tooltip b { font-weight: 500; }
+.overview-chart-tooltip span { text-align: right; overflow-wrap: anywhere; }
 .overview-timeline-svg { display: block; max-width: none; font: 10px var(--mono); }
 .overview-timeline-grid { stroke: var(--line); stroke-dasharray: 4 4; }
 .overview-timeline-selected { stroke: var(--muted); stroke-dasharray: 3 4; }

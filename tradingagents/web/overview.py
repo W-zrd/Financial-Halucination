@@ -46,7 +46,7 @@ def _level(text: str) -> tuple[str, float | None]:
 
 def build_overview(results_dir: Path) -> dict:
     latest: dict[str, dict] = {}
-    by_ticker_day: dict[tuple[str, str], dict] = {}
+    historical: list[dict] = []
     for run in scan_runs(results_dir):
         if run["status"] != "done":
             continue
@@ -57,10 +57,7 @@ def build_overview(results_dir: Path) -> dict:
         except ValueError:
             valid_day = False
         if valid_day:
-            key = (ticker, analysis_date)
-            previous = by_ticker_day.get(key)
-            if previous is None or (str(run["created_at"]), run["id"]) > (str(previous["created_at"]), previous["id"]):
-                by_ticker_day[key] = run
+            historical.append(run)
         current = latest.get(ticker)
         if current is None or (str(run["analysis_date"]), str(run["created_at"])) > (
             str(current["analysis_date"]), str(current["created_at"])
@@ -69,14 +66,16 @@ def build_overview(results_dir: Path) -> dict:
 
     days: dict[str, dict] = {}
     ticker_observations: dict[str, list[dict]] = {}
-    for (ticker, analysis_date), run in sorted(by_ticker_day.items()):
+    for run in sorted(historical, key=lambda item: (str(item["ticker"]).upper(), str(item["analysis_date"]), str(item["created_at"]), item["id"])):
+        ticker = str(run["ticker"]).upper()
+        analysis_date = str(run["analysis_date"])
         rating = str(run["rating"])
         category = _category(rating)
         point = days.setdefault(analysis_date, {"analysis_date": analysis_date, "buy": 0, "hold": 0, "sell": 0, "unknown": 0})
         point[category] += 1
         ticker_observations.setdefault(ticker, []).append({
             "analysis_date": analysis_date, "rating": rating,
-            "category": category, "run_id": run["id"],
+            "category": category, "run_id": run["id"], "llm_model": run["llm_model"],
         })
     timeline = [days[day] for day in sorted(days)]
     ticker_timeline = [

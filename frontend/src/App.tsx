@@ -128,6 +128,18 @@ export default function App() {
   const [jobs, setJobs] = useState<ActiveJob[]>([])
   const [raw, setRaw] = useState(false)
   const [view, setView] = useState<'new' | 'jobs' | 'reports' | 'overview'>('overview')
+  const [menuOpen, setMenuOpen] = useState(false)
+  const [theme, setTheme] = useState<'light' | 'dark'>(() => {
+    const stored = window.localStorage.getItem('financial-theme')
+    return stored === 'light' || stored === 'dark' ? stored : window.matchMedia?.('(prefers-color-scheme: dark)').matches ? 'dark' : 'light'
+  })
+  useEffect(() => { document.documentElement.dataset.theme = theme }, [theme])
+  useEffect(() => {
+    if (!menuOpen) return
+    const closeOnEscape = (event: KeyboardEvent) => { if (event.key === 'Escape') setMenuOpen(false) }
+    window.addEventListener('keydown', closeOnEscape)
+    return () => window.removeEventListener('keydown', closeOnEscape)
+  }, [menuOpen])
   const [focusedJobId, setFocusedJobId] = useState('')
   const [expandedTicker, setExpandedTicker] = useState('')
   const [historyPage, setHistoryPage] = useState(0)
@@ -436,6 +448,12 @@ export default function App() {
     }
   }
 
+  function toggleTheme() {
+    const next = theme === 'dark' ? 'light' : 'dark'
+    setTheme(next)
+    window.localStorage.setItem('financial-theme', next)
+  }
+
   async function logout() {
     await api('/api/auth/logout', { method: 'POST', headers: { 'X-CSRF-Token': session!.csrf_token } })
     Object.values(streams.current).forEach(stream => stream.close())
@@ -451,15 +469,16 @@ export default function App() {
   return <div className="app-shell">
     <header className="topbar">
       <div className="brand">
+        <button className="mobile-menu-toggle" aria-label={menuOpen ? 'Close menu' : 'Open menu'} aria-expanded={menuOpen} aria-controls="workspace-menu" onClick={() => setMenuOpen(!menuOpen)}><span aria-hidden="true">{menuOpen ? '×' : '☰'}</span></button>
         <div className="brand-mark"><BrandIcon /></div>
-        <div><div className="eyebrow">PRIVATE RESEARCH / MULTI-AGENT FINANCE</div><h1>Financial Halucination</h1></div>
+        <div className="brand-copy"><div className="eyebrow">PRIVATE RESEARCH / MULTI-AGENT FINANCE</div><h1>Financial Halucination</h1></div>
       </div>
-      <div className="session"><span className="status-dot" aria-hidden="true" /><span>{session.username}</span><button className="ghost" onClick={logout}>Sign out</button></div>
+      <div className="session"><span className="status-dot" aria-hidden="true" /><span>{session.username}</span><button className="ghost theme-toggle" aria-label={`Switch to ${theme === 'dark' ? 'light' : 'dark'} theme`} title={`Switch to ${theme === 'dark' ? 'light' : 'dark'} theme`} onClick={toggleTheme}><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" aria-hidden="true">{theme === 'dark' ? <><circle cx="12" cy="12" r="4" /><path d="M12 2v2m0 16v2M2 12h2m16 0h2M5 5l1.5 1.5m11 11L19 19M19 5l-1.5 1.5m-11 11L5 19" /></> : <path d="M20.5 14A9 9 0 0 1 10 3.5a9 9 0 1 0 10.5 10.5Z" />}</svg></button><button className="ghost" onClick={logout}>Sign out</button></div>
     </header>
 
     <div className={`workspace view-${view}`}>
       <aside className="command-sidebar" aria-label="Workspace navigation">
-        <nav className="workspace-nav" aria-label="Workspace sections">
+        <nav id="workspace-menu" className={`workspace-nav${menuOpen ? ' mobile-open' : ''}`} aria-label="Workspace sections" onClick={() => setMenuOpen(false)}>
           <button className="dashboard-nav" aria-current={view === 'overview' ? 'page' : undefined} onClick={() => void showOverview()}>Analysis dashboard <span>▦</span></button>
           <button aria-current={view === 'new' ? 'page' : undefined} onClick={() => setView('new')}>New analysis <span>＋</span></button>
           <button aria-current={view === 'jobs' ? 'page' : undefined} onClick={() => setView('jobs')}>Live runs <span>{jobs.filter(job => !terminalStatuses.has(job.status)).length}</span></button>

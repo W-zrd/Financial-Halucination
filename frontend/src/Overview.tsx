@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import './Overview.css'
 
 export type OverviewRow = {
@@ -34,7 +34,7 @@ export type OverviewData = {
 }
 
 type OverviewTimelinePoint = { analysis_date: string; buy: number; hold: number; sell: number; unknown: number }
-type TickerObservation = { analysis_date: string; rating: string; category: 'buy' | 'hold' | 'sell' | 'unknown'; run_id: string }
+type TickerObservation = { analysis_date: string; rating: string; category: 'buy' | 'hold' | 'sell' | 'unknown'; run_id: string; llm_model?: string | null }
 type TickerTimeline = { ticker: string; observations: TickerObservation[] }
 
 const categories = [
@@ -46,9 +46,24 @@ const categories = [
 
 function RatingTimeline({ timeline, tickers, hasRuns, onOpenRun }: { timeline: OverviewTimelinePoint[]; tickers: TickerTimeline[]; hasRuns: boolean; onOpenRun: (id: string) => void }) {
   const [chosenDate, setChosenDate] = useState('')
+  const [hoveredDate, setHoveredDate] = useState('')
+  const chartRef = useRef<HTMLDivElement>(null)
+  const [containerWidth, setContainerWidth] = useState(0)
   const selectedDate = timeline.some(point => point.analysis_date === chosenDate) ? chosenDate : timeline.at(-1)?.analysis_date
   const selected = timeline.find(point => point.analysis_date === selectedDate)
-  const width = Math.max(720, 110 + (timeline.length - 1) * 82)
+  const hovered = timeline.find(point => point.analysis_date === hoveredDate)
+  const observationsFor = (day: string, key: TickerObservation['category']) => tickers.flatMap(({ ticker, observations }) => observations.filter(observation => observation.analysis_date === day && observation.category === key).map(observation => ({ ...observation, ticker })))
+  const minimumWidth = Math.max(240, 110 + (timeline.length - 1) * 82)
+  const width = Math.max(minimumWidth, containerWidth)
+  useEffect(() => {
+    const element = chartRef.current
+    if (!element) return
+    const measure = () => setContainerWidth(element.clientWidth)
+    measure()
+    const observer = typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(measure)
+    observer?.observe(element)
+    return () => observer?.disconnect()
+  }, [timeline.length])
   const left = 50
   const right = width - 32
   const top = 25
@@ -56,26 +71,36 @@ function RatingTimeline({ timeline, tickers, hasRuns, onOpenRun }: { timeline: O
   const maximum = Math.max(1, ...timeline.flatMap(point => categories.map(({ key }) => point[key])))
   const x = (index: number) => timeline.length === 1 ? (left + right) / 2 : left + (right - left) * index / (timeline.length - 1)
   const y = (count: number) => bottom - count / maximum * (bottom - top)
+  useEffect(() => {
+    const element = chartRef.current
+    if (element && selectedDate && element.scrollWidth > element.clientWidth) {
+      const index = timeline.findIndex(point => point.analysis_date === selectedDate)
+      element.scrollLeft = x(index) - element.clientWidth / 2
+    }
+  }, [selectedDate, width])
   const selectedIndex = timeline.findIndex(point => point.analysis_date === selectedDate)
   return <section className="overview-section overview-timeline" aria-labelledby="overview-timeline-title">
-    <div className="overview-section-head"><div><span className="overview-kicker">SAVED SIGNALS / BY ANALYSIS DATE</span><h3 id="overview-timeline-title">Decision count timeline</h3></div><span>Distinct stocks · latest saved decision per ticker/date</span></div>
+    <div className="overview-section-head"><div><span className="overview-kicker">SAVED SIGNALS / BY ANALYSIS DATE</span><h3 id="overview-timeline-title">Decision count timeline</h3></div></div>
     {!timeline.length ? <p className="overview-timeline-empty">{hasRuns ? 'Timeline unavailable from this server. Refresh after updating the server.' : 'No saved analysis dates yet.'}</p> : <div className="overview-timeline-content">
-      <p className="overview-timeline-note">Only saved analysis dates are shown. Lines connect observed daily counts; intervening dates are not measured. Select a date to see which stocks contributed. Historical research, not live advice or holdings.</p>
       <div className="overview-timeline-legend" aria-label="Decision series legend">{categories.map(({ key, label }) => <span key={key} className={`overview-legend-item overview-${key}`}><i aria-hidden="true" />{label}</span>)}</div>
-      <div className="overview-timeline-scroll" role="region" aria-label="Decision count chart (scroll horizontally for more dates)" tabIndex={0}>
+      <div className="overview-chart-frame" onMouseLeave={() => setHoveredDate('')}>
+        <div className="overview-timeline-scroll" ref={chartRef} role="region" aria-label="Decision count chart (scroll horizontally for more dates)" tabIndex={0}>
         <svg className="overview-timeline-svg" width={width} height="270" viewBox={`0 0 ${width} 270`} role="img" aria-label="Decision counts by analysis date; four lines for Buy, Hold, Sell and Unknown. Choose a date below for exact counts and stocks.">
           {[0, maximum].map(value => <g key={value}><line className="overview-timeline-grid" x1={left} x2={right} y1={y(value)} y2={y(value)} /><text className="overview-timeline-axis-label" x={left - 12} y={y(value) + 4} textAnchor="end">{value}</text></g>)}
           {selectedIndex >= 0 && <line className="overview-timeline-selected" x1={x(selectedIndex)} x2={x(selectedIndex)} y1={top} y2={bottom} />}
           {timeline.length > 1 && <path className="overview-buy-fill" d={`M ${x(0)} ${bottom} L ${timeline.map((point, index) => `${x(index)} ${y(point.buy)}`).join(' L ')} L ${x(timeline.length - 1)} ${bottom} Z`} />}
-          {categories.map(({ key }) => <g key={key} className={`overview-${key}`}>
+          {categories.map(({ key, label }) => <g key={key} className={`overview-${key}`}>
             {timeline.length > 1 && <path className="overview-series" d={`M ${timeline.map((point, index) => `${x(index)} ${y(point[key])}`).join(' L ')}`} />}
-            {timeline.map((point, index) => <circle key={point.analysis_date} className="overview-series-dot" cx={x(index)} cy={y(point[key])} r="4"><title>{`${point.analysis_date}: ${key} ${point[key]}`}</title></circle>)}
+            {timeline.map((point, index) => <circle key={point.analysis_date} className="overview-series-dot" cx={x(index)} cy={y(point[key])} r="4"><title>{`${point.analysis_date}: ${label} ${point[key]} — ${observationsFor(point.analysis_date, key).map(item => item.ticker).join(', ') || 'none'}`}</title></circle>)}
           </g>)}
           {timeline.map((point, index) => <text className="overview-timeline-date" key={point.analysis_date} x={x(index)} y="252" textAnchor="middle">{point.analysis_date}</text>)}
+          {timeline.map((point, index) => <rect key={point.analysis_date} className="overview-date-hit" x={index === 0 ? 0 : (x(index - 1) + x(index)) / 2} y="0" width={(index === timeline.length - 1 ? width : (x(index) + x(index + 1)) / 2) - (index === 0 ? 0 : (x(index - 1) + x(index)) / 2)} height="270" fill="transparent" onMouseEnter={() => setHoveredDate(point.analysis_date)} onClick={() => setChosenDate(point.analysis_date)} />)}
         </svg>
+        </div>
+        {hovered && <div className="overview-chart-tooltip" role="status" aria-label="Chart date details"><strong>{hovered.analysis_date}</strong>{categories.map(({ key, label }) => <div key={key}><b>{label}: {hovered[key]}</b><span>{observationsFor(hovered.analysis_date, key).map(item => item.ticker).join(', ') || '—'}</span></div>)}</div>}
       </div>
       <div className="overview-date-strip" role="group" aria-label="Select an analysis date">{timeline.map(point => <button key={point.analysis_date} aria-label={`Select ${point.analysis_date}`} aria-pressed={selectedDate === point.analysis_date} onClick={() => setChosenDate(point.analysis_date)}>{point.analysis_date}</button>)}</div>
-      {selected && <div className="overview-date-detail"><h4>Selected date: {selected.analysis_date}</h4>{!tickers.length && <p className="overview-timeline-note">Stock names unavailable from this server; update the backend to see contributing reports.</p>}<div className="overview-date-groups">{categories.map(({ key, label }) => <div key={key} className={`overview-date-group overview-${key}`}><strong>{label}: {selected[key]}</strong><div>{tickers.flatMap(({ ticker, observations }) => observations.filter(observation => observation.analysis_date === selectedDate && observation.category === key).map(observation => <button key={ticker} onClick={() => onOpenRun(observation.run_id)} aria-label={`Open ${ticker} report: ${observation.category === 'unknown' ? 'Unknown' : observation.rating}`}>{ticker} · {observation.category === 'unknown' ? 'Unknown' : observation.rating} ↗</button>))}</div></div>)}</div></div>}
+      {selected && <div className="overview-date-detail"><h4>Selected date: {selected.analysis_date}</h4>{!tickers.length && <p className="overview-timeline-note">Stock names unavailable from this server; update the backend to see contributing reports.</p>}<div className="overview-date-groups">{categories.map(({ key, label }) => <div key={key} className={`overview-date-group overview-${key}`}><strong>{label}: {selected[key]}</strong><div>{observationsFor(selected.analysis_date, key).map(observation => <button key={observation.run_id} onClick={() => onOpenRun(observation.run_id)} aria-label={`Open ${observation.ticker} report: ${observation.rating}; model ${observation.llm_model || 'not available'}`} title={`${observation.rating} · ${observation.llm_model || 'Model not available'}`}>{observation.ticker}</button>)}</div></div>)}</div></div>}
     </div>}
   </section>
 }

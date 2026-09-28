@@ -220,7 +220,7 @@ test('does not infer sentiment from an unlabelled score or show charts without s
   expect(screen.queryByRole('region', { name: 'Report visualizations' })).not.toBeInTheDocument()
 })
 
-afterEach(() => cleanup())
+afterEach(() => { cleanup(); window.localStorage.removeItem('financial-theme'); delete document.documentElement.dataset.theme })
 
 beforeEach(() => {
   vi.stubGlobal('fetch', vi.fn((input: RequestInfo | URL) => {
@@ -230,6 +230,28 @@ beforeEach(() => {
     if (url.endsWith('/api/runs')) return ok([])
     return ok({})
   }))
+})
+
+test('opens a compact workspace menu and closes it after navigation', async () => {
+  render(<App />)
+  await waitFor(() => expect(document.querySelector('.mobile-menu-toggle')).not.toBeNull())
+  const toggle = document.querySelector<HTMLButtonElement>('.mobile-menu-toggle')!
+  expect(toggle).toHaveAttribute('aria-expanded', 'false')
+  await userEvent.click(toggle)
+  expect(toggle).toHaveAttribute('aria-expanded', 'true')
+  await userEvent.click(screen.getByRole('button', { name: /saved reports/i }))
+  expect(toggle).toHaveAttribute('aria-expanded', 'false')
+  expect(screen.getByRole('complementary', { name: 'Workspace navigation' })).toBeInTheDocument()
+})
+
+test('allows a persisted dark theme and a return to light', async () => {
+  window.localStorage.setItem('financial-theme', 'dark')
+  render(<App />)
+  expect(await screen.findByRole('button', { name: 'Switch to light theme' })).toBeInTheDocument()
+  expect(document.documentElement).toHaveAttribute('data-theme', 'dark')
+  await userEvent.click(screen.getByRole('button', { name: 'Switch to light theme' }))
+  expect(document.documentElement).toHaveAttribute('data-theme', 'light')
+  expect(window.localStorage.getItem('financial-theme')).toBe('light')
 })
 
 test('lands on the highlighted dashboard after a saved session restores even with active jobs', async () => {

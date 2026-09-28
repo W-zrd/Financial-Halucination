@@ -109,11 +109,32 @@ test('plots category counts as four lines, shows selected-day stock names, and o
   expect(within(timelineSection).getByRole('button', { name: /open NVDA.*Sell/i })).toBeInTheDocument()
   await userEvent.click(within(timelineSection).getByRole('button', { name: /select 2026-09-23/i }))
   expect(within(timelineSection).getByText(/selected date: 2026-09-23/i)).toBeInTheDocument()
-  expect(within(timelineSection).getByRole('button', { name: /open AMD.*Unknown/i })).toBeInTheDocument()
+  expect(within(timelineSection).getByRole('button', { name: /open AMD.*Not available/i })).toBeInTheDocument()
   expect(within(timelineSection).getByRole('button', { name: /open MU.*Hold/i })).toBeInTheDocument()
   expect(within(timelineSection).queryByRole('button', { name: /open NVDA.*Sell/i })).not.toBeInTheDocument()
-  await userEvent.click(within(timelineSection).getByRole('button', { name: /open AMD.*Unknown/i }))
+  await userEvent.click(within(timelineSection).getByRole('button', { name: /open AMD.*Not available/i }))
   expect(onOpenRun).toHaveBeenCalledWith('old-amd')
+})
+
+test('shows every same-day report in its category and identifies contributing tickers on chart hover', async () => {
+  const onOpenRun = vi.fn()
+  render(<Overview data={{ ...data, timeline: [{ analysis_date: '2026-09-28', buy: 1, hold: 0, sell: 1, unknown: 0 }], ticker_timeline: [
+    { ticker: 'NVDA', observations: [
+      { analysis_date: '2026-09-28', rating: 'Overweight', category: 'buy', run_id: 'gemini', llm_model: 'gemini-3.8-flash-high' },
+      { analysis_date: '2026-09-28', rating: 'Underweight', category: 'sell', run_id: 'deepseek', llm_model: 'deepseek-v4.1-flash' },
+    ] },
+  ] }} onOpenRun={onOpenRun} />)
+  const chart = screen.getByRole('img', { name: /decision counts by analysis date/i })
+  await userEvent.hover(chart.querySelector('.overview-date-hit') as Element)
+  const tooltip = screen.getByRole('status', { name: 'Chart date details' })
+  expect(tooltip).toHaveTextContent('Buy / Overweight')
+  expect(tooltip).toHaveTextContent('Underweight / Sell')
+  expect(within(tooltip).getAllByText('NVDA')).toHaveLength(2)
+  const detail = screen.getByText('Selected date: 2026-09-28').closest<HTMLElement>('.overview-date-detail')!
+  expect(within(detail).getAllByText('NVDA')).toHaveLength(2)
+  expect(within(detail).queryByText(/NVDA ·/)).not.toBeInTheDocument()
+  await userEvent.click(within(detail).getByRole('button', { name: /NVDA.*deepseek-v4.1-flash/i }))
+  expect(onOpenRun).toHaveBeenCalledWith('deepseek')
 })
 
 test('shows a single observed date without implying a trend', () => {
@@ -121,5 +142,6 @@ test('shows a single observed date without implying a trend', () => {
   const chart = screen.getByRole('img', { name: /decision counts by analysis date/i })
   expect(chart.querySelectorAll('path.overview-series')).toHaveLength(0)
   expect(chart.querySelectorAll('circle.overview-series-dot')).toHaveLength(4)
-  expect(screen.getByText(/only saved analysis dates are shown/i)).toBeInTheDocument()
+  expect(screen.queryByText(/only saved analysis dates are shown/i)).not.toBeInTheDocument()
+  expect(Number(chart.getAttribute('width'))).toBeLessThanOrEqual(320)
 })

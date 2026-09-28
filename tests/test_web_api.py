@@ -206,7 +206,7 @@ def test_overview_empty_history_is_cash_only(tmp_path, monkeypatch):
         assert body["timeline"] == []
 
 
-def test_timeline_uses_analysis_date_and_deduplicates_latest_ticker_day(tmp_path, monkeypatch):
+def test_timeline_uses_analysis_date_and_counts_every_completed_report(tmp_path, monkeypatch):
     root = tmp_path / "results"
     fixtures = [
         ("AAA", "2026-09-22", "Hold", "2026-09-25T09:00:00+00:00", "done"),
@@ -222,9 +222,10 @@ def test_timeline_uses_analysis_date_and_deduplicates_latest_ticker_day(tmp_path
         (report.parent / "metadata.json").write_text(json.dumps({"created_at": created, "status": status}))
     duplicate = root / ".web-runs" / "older-copy" / "reports"
     duplicate.mkdir(parents=True)
-    (duplicate / "final_trade_decision.md").write_text("Rating: Hold")
+    (duplicate / "final_trade_decision.md").write_text("Rating: Sell")
     (duplicate.parent / "metadata.json").write_text(json.dumps({
         "ticker": "AAA", "analysis_date": "2026-09-23", "created_at": "2026-09-25T08:00:00+00:00",
+        "llm_model": "deepseek-v4.1-flash",
     }))
 
     with _client(tmp_path, monkeypatch) as client:
@@ -232,20 +233,19 @@ def test_timeline_uses_analysis_date_and_deduplicates_latest_ticker_day(tmp_path
         overview = client.get("/api/overview").json()
         assert overview["timeline"] == [
             {"analysis_date": "2026-09-22", "buy": 0, "hold": 1, "sell": 0, "unknown": 0},
-            {"analysis_date": "2026-09-23", "buy": 1, "hold": 0, "sell": 1, "unknown": 1},
+            {"analysis_date": "2026-09-23", "buy": 1, "hold": 0, "sell": 2, "unknown": 1},
         ]
-        assert overview["ticker_timeline"] == [
-            {"ticker": "AAA", "observations": [
-                {"analysis_date": "2026-09-22", "rating": "Hold", "category": "hold", "run_id": next(r["id"] for r in client.get("/api/runs").json() if r["ticker"] == "AAA" and r["analysis_date"] == "2026-09-22")},
-                {"analysis_date": "2026-09-23", "rating": "Buy", "category": "buy", "run_id": next(r["id"] for r in client.get("/api/runs").json() if r["ticker"] == "AAA" and r["analysis_date"] == "2026-09-23" and r["rating"] == "Buy")},
-            ]},
-            {"ticker": "BBB", "observations": [
-                {"analysis_date": "2026-09-23", "rating": "Underweight", "category": "sell", "run_id": next(r["id"] for r in client.get("/api/runs").json() if r["ticker"] == "BBB")},
-            ]},
-            {"ticker": "CCC", "observations": [
-                {"analysis_date": "2026-09-23", "rating": "Not available", "category": "unknown", "run_id": next(r["id"] for r in client.get("/api/runs").json() if r["ticker"] == "CCC")},
-            ]},
+        observed = {row["ticker"]: row["observations"] for row in overview["ticker_timeline"]}
+        assert set(observed) == {"AAA", "BBB", "CCC"}
+        assert [(item["analysis_date"], item["rating"], item["category"], item["llm_model"]) for item in observed["AAA"]] == [
+            ("2026-09-22", "Hold", "hold", None),
+            ("2026-09-23", "Sell", "sell", "deepseek-v4.1-flash"),
+            ("2026-09-23", "Buy", "buy", None),
         ]
+        assert len({item["run_id"] for item in observed["AAA"]}) == 3
+        assert [item["category"] for item in observed["BBB"]] == ["sell"]
+        assert [item["category"] for item in observed["CCC"]] == ["unknown"]
+        assert overview["rows"][0]["ticker"] == "AAA" and overview["rows"][0]["rating"] == "Buy"
 
 
 def test_overview_weights_buy_and_overweight_in_a_monthly_target(tmp_path, monkeypatch):
